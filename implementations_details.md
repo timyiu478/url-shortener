@@ -16,8 +16,10 @@ This separation ensures that each layer is independent, making the code easier t
     - The retry-on-collision logic is concurrency-safe 
         - row-level locking and MVVC prevents read-write conflicts and write-write conflicts
 
+https://www.postgresql.org/docs/current/mvcc.html
 
 ## Scalability and Performance
 
 - Cache-Aside: Redirects (GET) use ElastiCache for fast reads, handling the read-heavy workload and supporting 1000+ req/s. Aurora’s indexing (INDEX idx_short_key) ensures efficient lookups for cache misses.
 - Stateless Service: The key generation logic keeps the service stateless because it does not rely on any stateful components.
+
