@@ -6,16 +6,10 @@ import (
     "errors"
     "fmt"
     "net/url"
-    "time"
 
-    "go.opentelemetry.io/otel"
-    "go.opentelemetry.io/otel/attribute"
-    "go.opentelemetry.io/otel/trace"
     "github.com/go-sql-driver/mysql"
     "url-shortener/internal/repositories"
 )
-
-var tracer = otel.Tracer("url-shortener-services")
 
 // Base62 characters
 const base62Chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -34,20 +28,13 @@ func NewShortenerService(repo repositories.URLRepository) Shortener {
 }
 
 func (s *shortenerService) CreateShortURL(ctx context.Context, originalURL string) (string, error) {
-    ctx, span := tracer.Start(ctx, "CreateShortURL", trace.WithAttributes(
-        attribute.String("original_url", originalURL),
-    ))
-    defer span.End()
-
     // Validate URL
     if originalURL == "" {
         err := errors.New("original URL is empty")
-        span.RecordError(err)
         return "", err
     }
     if _, err := url.ParseRequestURI(originalURL); err != nil {
         err = fmt.Errorf("invalid URL format: %w", err)
-        span.RecordError(err)
         return "", err
     }
 
@@ -55,47 +42,31 @@ func (s *shortenerService) CreateShortURL(ctx context.Context, originalURL strin
     for attempt := 0; attempt < maxAttempts; attempt++ {
         shortKey, err := generateShortKey()
         if err != nil {
-            span.RecordError(err)
             return "", err
         }
         err = s.repo.StoreURL(ctx, shortKey, originalURL)
         if err == nil {
-            span.SetAttributes(attribute.String("short_key", shortKey))
             return shortKey, nil
         }
         if mysqlErr, ok := err.(*mysql.MySQLError); ok && mysqlErr.Number == 1062 {
-            span.AddEvent("Duplicate key retry", trace.WithAttributes(
-                attribute.Int("attempt", attempt+1),
-            ))
             continue
         }
-        span.RecordError(err)
         return "", err
     }
     err := errors.New("max attempts reached for unique short key")
-    span.RecordError(err)
-    span.SetAttributes(attribute.Bool("retry_exhausted", true))
     return "", err
 }
 
 func (s *shortenerService) GetOriginalURL(ctx context.Context, shortKey string) (string, error) {
-    ctx, span := tracer.Start(ctx, "GetOriginalURL", trace.WithAttributes(
-        attribute.String("short_key", shortKey),
-    ))
-    defer span.End()
-
     if shortKey == "" {
         err := errors.New("short key is empty")
-        span.RecordError(err)
         return "", err
     }
 
     originalURL, err := s.repo.GetURL(ctx, shortKey)
     if err != nil {
-        span.RecordError(err)
         return "", err
     }
-    span.SetAttributes(attribute.String("original_url", originalURL))
     return originalURL, nil
 }
 
