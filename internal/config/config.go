@@ -1,44 +1,46 @@
 package config
 
 import (
-	"fmt"
-	"os"
+    "github.com/spf13/viper"
 )
 
-// Config holds application configuration
 type Config struct {
-	Port          string
-	DBEndpoint    string
-	DBUser        string
-	DBPassword    string
-	DBName        string
-	RedisEndpoint string
-	Domain        string
+    Port              string
+    DBEndpoint        string
+    DBUser            string
+    DBPassword        string
+    DBName            string
+    RedisEndpoint     string
+    OTLPTraceEndpoint string
 }
 
-// LoadConfig loads configuration from environment variables
-func LoadConfig() (*Config, error) {
-	cfg := &Config{
-		Port:          getEnv("PORT", "8080"),
-		DBEndpoint:    getEnv("DB_ENDPOINT", ""),
-		DBUser:        getEnv("DB_USER", ""),
-		DBPassword:    getEnv("DB_PASSWORD", ""),
-		DBName:        getEnv("DB_NAME", ""),
-		RedisEndpoint: getEnv("REDIS_ENDPOINT", ""),
-		Domain:        getEnv("DOMAIN", "shortenurl.org"),
-	}
+func Load() (*Config, error) {
+    viper.SetConfigName("config")
+    viper.AddConfigPath("./configs")
+    viper.AutomaticEnv()
 
-	if cfg.DBEndpoint == "" || cfg.DBUser == "" || cfg.DBPassword == "" || cfg.DBName == "" || cfg.RedisEndpoint == "" {
-		return nil, fmt.Errorf("missing required configuration")
-	}
+    viper.SetDefault("PORT", "8080")
+    viper.SetDefault("DB_ENDPOINT", "localhost:3306")
+    viper.SetDefault("DB_USER", "user")
+    viper.SetDefault("DB_PASSWORD", "password")
+    viper.SetDefault("DB_NAME", "urlshortener")
+    viper.SetDefault("REDIS_ENDPOINT", "localhost:6379")
+    viper.SetDefault("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4318") // Default OTLP endpoint
 
-	return cfg, nil
-}
+    if err := viper.ReadInConfig(); err != nil {
+        if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+            return nil, err
+        }
+    }
 
-// getEnv retrieves environment variable with fallback
-func getEnv(key, fallback string) string {
-	if value, exists := os.LookupEnv(key); exists {
-		return value
-	}
-	return fallback
+    cfg := &Config{
+        Port:              viper.GetString("PORT"),
+        DBEndpoint:        viper.GetString("DB_ENDPOINT"),
+        DBUser:            viper.GetString("DB_USER"),
+        DBPassword:        viper.GetString("DB_PASSWORD"),
+        DBName:            viper.GetString("DB_NAME"),
+        RedisEndpoint:     viper.GetString("REDIS_ENDPOINT"),
+        OTLPTraceEndpoint: viper.GetString("OTEL_EXPORTER_OTLP_ENDPOINT"),
+    }
+    return cfg, nil
 }

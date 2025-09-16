@@ -13,13 +13,14 @@ This separation ensures that each layer is independent, making the code easier t
 
 - produce a 9-character key using Base62 (0-9, A-Z, a-z), providing $ 62^9 \approx 2^{53.6} $ (~13 quintillion) combinations, sufficient for billions of URLs with low collision probability.
 - implement the retry-on-collision logic (up to 5 attempts) for duplicate key errors (MySQL error code 1062).
-    - The retry-on-collision logic is concurrency-safe 
-        - row-level locking and MVVC prevents read-write conflicts and write-write conflicts
+    - The retry-on-collision logic is concurrency-safe and avoid write-write conflict with the help of the database's unique constraint on the `short_key` column and the row-level locking.
 
-https://www.postgresql.org/docs/current/mvcc.html
 
 ## Scalability and Performance
 
 - Cache-Aside: Redirects (GET) use ElastiCache for fast reads, handling the read-heavy workload and supporting 1000+ req/s. Aurora’s indexing (INDEX idx_short_key) ensures efficient lookups for cache misses.
-- Stateless Service: The key generation logic keeps the service stateless because it does not rely on any stateful components.
+- Stateless Service: The key generation logic keeps the service stateless without relying on application-level coordination.
 
+## Health check and Monitoring
+
+- added 

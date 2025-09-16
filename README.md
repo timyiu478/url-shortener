@@ -76,9 +76,9 @@ This architecture is designed with a focus on how the system scale globally for 
 - Key Assumption: the system is read-heavy. The volume of `GET /{shortenUrl}` requests is much larger than the volume of `POST /newurl` requests.
 - The term *region level* denotes the service is highly available and can tolerate at least one availability zone failure
 - Even though we say the database is *region level*, no data loss with high probability under entire data center failure
-- Cache Hierarchy: Edge Location -> Region Level Cache
+- Main Cache Hierarchy: Edge Location -> Region Level Cache
     - Edge location: absorb most of the requests of the popular URLs
-    - Region Level Cache: serves uncached or cache-miss requests for all url-shorten service instances, ensuring consistency
+    - Region Level Cache: serves uncached or cache-miss requests for all url-shorten service instances
 - The internal traffic flow is also controlled for security e.g. the ALB only call the url-shorten service (i.e. ALB can't call the database).
 - CI/CD consideration: we choose to use container as the portable uint of the url-shorten service because
     - it is lightweight which take up less space and are easier to scale
@@ -88,6 +88,7 @@ This architecture is designed with a focus on how the system scale globally for 
     - main reason: we want to ensure high data durability, yet we don't pay the cost of cross-region round-trip delay
 - The other necessary systems such as CI/CD system, intrusion detection/prevention systems, and observability system are omitted as intend
 - How to minimise hot spots and increase cache hit rate are also not discussed at this section
+- Full CQRS pattern(seperate read store and write store) is not applied in this design for simplicity and probably it is not necessary for this use case
 - AWS services that we can use: Cloudfront, ALB, Aurora, Route53, ElastiCache, WAF
 
 ---
@@ -97,6 +98,9 @@ This architecture is designed with a focus on how the system scale globally for 
 ![scaling_mechanism](assets/scaling_mechanism.png)
 
 The mechanism can be realized in many established solutions that can support different scaling strategy without modifying the core logic of url-shorten service source code. Also, it is applicable for other services that require auto-scaling. If we use kubernetes to orchestrate the containers, we can use the [kubernetes horizontal pod autoscaler](https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/) for implementing this mechanism. 
+
+---
+
 
 
 ---
@@ -111,7 +115,6 @@ The mechanism can be realized in many established solutions that can support dif
 
 ## Design Considerations
 
-- No in-memeory cache within the web server for avoiding coordination to invalidate the cache across all instances
 
 ---
 
