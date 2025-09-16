@@ -1,72 +1,127 @@
 package services
 
 import (
-	"context"
-	"crypto/rand"
-	"fmt"
-	"strings"
-	"time"
+    "context"
+    "crypto/rand"
+    "errors"
+    "fmt"
+    "net/url"
+    "time"
 
-	"github.com/go-sql-driver/mysql"
-	"github.com/yourusername/urlshortener/internal/repositories"
+    "go.opentelemetry.io/otel"
+    "go.opentelemetry.io/otel/attribute"
+    "go.opentelemetry.io/otel/trace"
+    "github.com/go-sql-driver/mysql"
+    "github.com/your-org/url-shortener/internal/repositories"
 )
 
-// base62Chars defines the Base62 character set for short keys
-const base62Chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+var tracer = otel.Tracer("url-shortener-services")
 
-// URLShortenerService handles business logic for URL shortening
-type URLShortenerService struct {
-	repo   repositories.URLRepository
-	domain string
+// Base62 characters
+const base62Chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+type Shortener interface {
+    CreateShortURL(ctx context.Context, originalURL string) (string, error)
+    GetOriginalURL(ctx context.Context, shortKey string) (string, error)
 }
 
-// NewURLShortenerService creates a new service
-func NewURLShortenerService(repo repositories.URLRepository, domain string) *URLShortenerService {
-	return &URLShortenerService{repo: repo, domain: domain}
+type shortenerService struct {
+    repo repositories.URLRepository
 }
 
-// CreateShortURL generates and stores a short URL
-func (s *URLShortenerService) CreateShortURL(ctx context.Context, originalURL string) (string, error) {
-	const maxAttempts = 5
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		shortKey, err := s.generateShortKey()
-		if err != nil {
-			return "", err
-		}
-
-		err = s.repo.StoreURL(ctx, shortKey, originalURL)
-		if err == nil {
-			return fmt.Sprintf("https://%s/%s", s.domain, shortKey), nil
-		}
-		// Check for MySQL duplicate key error (code 1062)
-		if mysqlErr, ok := err.(*mysql.MySQLError); ok && mysqlErr.Number == 1062 {
-			if attempt < maxAttempts {
-				continue // Retry with a new key
-			}
-			return "", fmt.Errorf("failed to generate unique short key after %d attempts", maxAttempts)
-		}
-		return "", fmt.Errorf("failed to store URL: %v", err)
-	}
-	return "", fmt.Errorf("failed to generate unique short key after %d attempts", maxAttempts)
+func NewShortenerService(repo repositories.URLRepository) Shortener {
+    return &shortenerService{repo: repo}
 }
 
-// GetOriginalURL retrieves the original URL from short key
-func (s *URLShortenerService) GetOriginalURL(ctx context.Context, shortKey string) (string, error) {
-	return s.repo.GetURL(ctx, shortKey)
+func (s *shortenerService) CreateShortURL(ctx context.Context, originalURL string) (string, error) {
+    ctx, span := tracer.Start(ctx, "CreateShortURL", trace.WithAttributes(
+        attribute.String("original_url", originalURL),
+    ))
+    defer span.End()
+
+    // Validate URL
+    if originalURL == "" {
+        err := errors.New("original URL is empty")
+        span.RecordError(err)
+        return "", err
+    }
+    if _, err := url.ParseRequestURI(originalURL); err != nil {
+        err = fmt.Errorf("invalid URL format: %w", err)
+        span.RecordError(err)
+        return "", err
+    }
+
+    const maxAttempts = 3
+    for attempt := 0; attempt < maxAttempts; attempt++ {
+        shortKey, err := generateShortKey()
+        if err != nil {
+            span.RecordError(err)
+            return "", err
+        }
+        err = s.repo.StoreURL(ctx, shortKey, originalURL)
+        if err == nil {
+            span.SetAttributes(attribute.String("short_key", shortKey))
+            return shortKey, nil
+        }
+        if mysqlErr, ok := err.(*mysql.MySQLError); ok && mysqlErr.Number == 1062 {
+            span.AddEvent("Duplicate key retry", trace.WithAttributes(
+                attribute.Int("attempt", attempt+1),
+            ))
+            continue
+        }
+        span.RecordError(err)
+        return "", err
+    }
+    err := errors.New("max attempts reached for unique short key")
+    span.RecordError(err)
+    span.SetAttributes(attribute.Bool("retry_exhausted", true))
+    return "", err
 }
 
-// generateShortKey creates a random 9-character Base62 short key
-func (s *URLShortenerService) generateShortKey() (string, error) {
-	const keyLength = 9
-	b := make([]byte, keyLength)
-	_, err := rand.Read(b)
-	if err != nil {
-		return "", err
-	}
-	// Convert random bytes to Base62
-	result := make([]byte, keyLength)
-	for i := 0; i < keyLength; i++ {
-		result[i] = base62Chars[int(b[i])%62]
-	}
-	return string(result), nil
+func (s *shortenerService) GetOriginalURL(ctx context.Context, shortKey string) (string, error) {
+    ctx, span := tracer.Start(ctx, "GetOriginalURL", trace.WithAttributes(
+        attribute.String("short_key", shortKey),
+    ))
+    defer span.End()
+
+    if shortKey == "" {
+        err := errors.New("short key is empty")
+        span.RecordError(err)
+        return "", err
+    }
+
+    originalURL, err := s.repo.GetURL(ctx, shortKey)
+    if err != nil {
+        span.RecordError(err)
+        return "", err
+    }
+    span.SetAttributes(attribute.String("original_url", originalURL))
+    return originalURL, nil
+}
+
+func generateShortKey() (string, error) {
+    b := make([]byte, 7) // ~9 chars in Base62
+    _, err := rand.Read(b)
+    if err != nil {
+        return "", fmt.Errorf("failed to generate random bytes: %w", err)
+    }
+    // Convert to Base62
+    var num uint64
+    for i, v := range b {
+        num |= uint64(v) << (8 * i)
+    }
+    result := make([]byte, 0, 9)
+    for num > 0 && len(result) < 9 {
+        result = append(result, base62Chars[num%62])
+        num /= 62
+    }
+    // Pad with '0' if necessary to ensure 9 characters
+    for len(result) < 9 {
+        result = append(result, '0')
+    }
+    // Reverse the result to get correct order
+    for i, j := 0, len(result)-1; i < j; i, j = i+1, j-1 {
+        result[i], result[j] = result[j], result[i]
+    }
+    return string(result), nil
 }

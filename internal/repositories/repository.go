@@ -3,6 +3,7 @@ package repositories
 import (
     "context"
     "database/sql"
+    "sync"
     "time"
 
     "go.opentelemetry.io/otel"
@@ -26,6 +27,7 @@ type URLRepository interface {
 type urlRepository struct {
     db    *sql.DB
     cache *redis.Client
+    mu    sync.Mutex // For safe closing
 }
 
 func NewURLRepository(cfg *config.Config) (URLRepository, error) {
@@ -38,7 +40,7 @@ func NewURLRepository(cfg *config.Config) (URLRepository, error) {
     }
     db, err := sql.Open("mysql", dbCfg.FormatDSN())
     if err != nil {
-        return nil, err
+        return nil, fmt.Errorf("failed to open database: %w", err)
     }
     db.SetMaxOpenConns(10)
     db.SetMaxIdleConns(5)
@@ -51,10 +53,20 @@ func NewURLRepository(cfg *config.Config) (URLRepository, error) {
 }
 
 func (r *urlRepository) Close() error {
+    r.mu.Lock()
+    defer r.mu.Unlock()
+
+    var errs []error
     if err := r.cache.Close(); err != nil {
-        return err
+        errs = append(errs, fmt.Errorf("failed to close cache: %w", err))
     }
-    return r.db.Close()
+    if err := r.db.Close(); err != nil {
+        errs = append(errs, fmt.Errorf("failed to close database: %w", err))
+    }
+    if len(errs) > 0 {
+        return fmt.Errorf("errors closing resources: %v", errs)
+    }
+    return nil
 }
 
 func (r *urlRepository) StoreURL(ctx context.Context, shortKey, originalURL string) error {
@@ -63,6 +75,10 @@ func (r *urlRepository) StoreURL(ctx context.Context, shortKey, originalURL stri
         attribute.String("original_url", originalURL),
     ))
     defer span.End()
+
+    // Add timeout for DB operation
+    ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+    defer cancel()
 
     query := "INSERT INTO urls (short_key, original_url, created_at) VALUES (?, ?, ?)"
     _, err := r.db.ExecContext(ctx, query, shortKey, originalURL, time.Now())
@@ -76,8 +92,9 @@ func (r *urlRepository) StoreURL(ctx context.Context, shortKey, originalURL stri
     err = r.cache.SetEx(ctx, shortKey, originalURL, 24*time.Hour).Err()
     if err != nil {
         cacheSpan.RecordError(err)
+        return fmt.Errorf("failed to set cache: %w", err)
     }
-    return err
+    return nil
 }
 
 func (r *urlRepository) GetURL(ctx context.Context, shortKey string) (string, error) {
@@ -93,10 +110,15 @@ func (r *urlRepository) GetURL(ctx context.Context, shortKey string) (string, er
         span.SetAttributes(attribute.String("source", "cache"))
         return val, nil
     }
-    cacheSpan.RecordError(err)
+    if err != redis.Nil {
+        cacheSpan.RecordError(err)
+    }
 
     ctx, dbSpan := tracer.Start(ctx, "DBQuery")
     defer dbSpan.End()
+    // Add timeout for DB operation
+    ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+    defer cancel()
     var originalURL string
     err = r.db.QueryRowContext(ctx, "SELECT original_url FROM urls WHERE short_key = ?", shortKey).Scan(&originalURL)
     if err != nil {
@@ -106,9 +128,9 @@ func (r *urlRepository) GetURL(ctx context.Context, shortKey string) (string, er
 
     ctx, cacheSetSpan := tracer.Start(ctx, "CacheSet")
     defer cacheSetSpan.End()
-    err = r.cache.SetEx(ctx, shortKey, originalURL, 24*time.Hour).Err()
-    if err != nil {
+    if err := r.cache.SetEx(ctx, shortKey, originalURL, 24*time.Hour).Err(); err != nil {
         cacheSetSpan.RecordError(err)
+        return originalURL, nil // Return URL despite cache error to maintain functionality
     }
 
     span.SetAttributes(attribute.String("original_url", originalURL), attribute.String("source", "database"))
@@ -118,6 +140,8 @@ func (r *urlRepository) GetURL(ctx context.Context, shortKey string) (string, er
 func (r *urlRepository) PingDB(ctx context.Context) error {
     ctx, span := tracer.Start(ctx, "PingDB")
     defer span.End()
+    ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+    defer cancel()
     err := r.db.PingContext(ctx)
     if err != nil {
         span.RecordError(err)
@@ -128,6 +152,8 @@ func (r *urlRepository) PingDB(ctx context.Context) error {
 func (r *urlRepository) PingCache(ctx context.Context) error {
     ctx, span := tracer.Start(ctx, "PingCache")
     defer span.End()
+    ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+    defer cancel()
     _, err := r.cache.Ping(ctx).Result()
     if err != nil {
         span.RecordError(err)

@@ -19,7 +19,7 @@ import (
     "go.opentelemetry.io/otel/sdk/metric"
     "go.opentelemetry.io/otel/sdk/resource"
     "go.opentelemetry.io/otel/sdk/trace"
-    "go.opentelemetry.io/otel/semconv/v1.21.0"
+    semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
     "github.com/your-org/url-shortener/internal/config"
     "github.com/your-org/url-shortener/internal/handlers"
     "github.com/your-org/url-shortener/internal/repositories"
@@ -34,12 +34,14 @@ func main() {
     }
 
     // Initialize OpenTelemetry tracing
-    tracerProvider, err := initTracer()
+    tracerProvider, err := initTracer(cfg.OTLPTraceEndpoint)
     if err != nil {
         log.Fatalf("Failed to initialize tracer: %v", err)
     }
     defer func() {
-        if err := tracerProvider.Shutdown(context.Background()); err != nil {
+        ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+        defer cancel()
+        if err := tracerProvider.Shutdown(ctx); err != nil {
             log.Printf("Error shutting down tracer provider: %v", err)
         }
     }()
@@ -51,7 +53,11 @@ func main() {
     if err != nil {
         log.Fatalf("Failed to initialize repository: %v", err)
     }
-    defer repo.Close()
+    defer func() {
+        if err := repo.Close(); err != nil {
+            log.Printf("Error closing repository: %v", err)
+        }
+    }()
 
     // Initialize service and handler
     svc := services.NewShortenerService(repo)
@@ -63,6 +69,13 @@ func main() {
         log.Fatalf("Failed to create Prometheus exporter: %v", err)
     }
     provider := metric.NewMeterProvider(metric.WithReader(exporter))
+    defer func() {
+        ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+        defer cancel()
+        if err := provider.Shutdown(ctx); err != nil {
+            log.Printf("Error shutting down metric provider: %v", err)
+        }
+    }()
     meter := provider.Meter("url-shortener")
 
     // Define metrics
@@ -86,7 +99,7 @@ func main() {
 
     // Set up HTTP router
     r := chi.NewRouter()
-    r.Use(h.TracingMiddleware()) // Add tracing middleware
+    r.Use(h.TracingMiddleware())
     r.Use(h.MetricsMiddleware(requestLatency, requestErrors))
     r.Post("/newurl", h.CreateShortURL)
     r.Get("/{shortKey}", h.GetOriginalURL)
@@ -94,10 +107,13 @@ func main() {
     r.Get("/healthz", h.HealthCheck)
     r.Get("/readyz", h.ReadinessCheck)
 
-    // Start server
+    // Start server with timeouts
     srv := &http.Server{
-        Addr:    ":" + cfg.Port,
-        Handler: r,
+        Addr:         ":" + cfg.Port,
+        Handler:      r,
+        ReadTimeout:  5 * time.Second,
+        WriteTimeout: 10 * time.Second,
+        IdleTimeout:  15 * time.Second,
     }
 
     // Handle graceful shutdown
@@ -122,16 +138,18 @@ func main() {
 }
 
 // initTracer sets up OpenTelemetry tracing with OTLP exporter
-func initTracer() (*trace.TracerProvider, error) {
+func initTracer(otlpEndpoint string) (*trace.TracerProvider, error) {
     ctx := context.Background()
 
-    // OTLP exporter (configure endpoint from env or default)
-    exporter, err := otlptracehttp.New(ctx, otlptracehttp.WithEndpoint(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")))
+    if otlpEndpoint == "" {
+        return nil, fmt.Errorf("OTEL_EXPORTER_OTLP_ENDPOINT is not set")
+    }
+
+    exporter, err := otlptracehttp.New(ctx, otlptracehttp.WithEndpoint(otlpEndpoint))
     if err != nil {
         return nil, err
     }
 
-    // Resource with service name
     res, err := resource.New(ctx, resource.WithAttributes(semconv.ServiceNameKey.String("url-shortener")))
     if err != nil {
         return nil, err
@@ -140,7 +158,7 @@ func initTracer() (*trace.TracerProvider, error) {
     tp := trace.NewTracerProvider(
         trace.WithBatcher(exporter),
         trace.WithResource(res),
-        trace.WithSampler(trace.AlwaysSample()), // For production, use trace.ParentBased(trace.AlwaysSample())
+        trace.WithSampler(trace.ParentBased(trace.AlwaysSample())),
     )
 
     return tp, nil

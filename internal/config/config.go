@@ -1,6 +1,9 @@
 package config
 
 import (
+    "errors"
+    "fmt"
+
     "github.com/spf13/viper"
 )
 
@@ -25,11 +28,11 @@ func Load() (*Config, error) {
     viper.SetDefault("DB_PASSWORD", "password")
     viper.SetDefault("DB_NAME", "urlshortener")
     viper.SetDefault("REDIS_ENDPOINT", "localhost:6379")
-    viper.SetDefault("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4318") // Default OTLP endpoint
+    viper.SetDefault("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4318")
 
     if err := viper.ReadInConfig(); err != nil {
         if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-            return nil, err
+            return nil, fmt.Errorf("failed to read config: %w", err)
         }
     }
 
@@ -42,5 +45,26 @@ func Load() (*Config, error) {
         RedisEndpoint:     viper.GetString("REDIS_ENDPOINT"),
         OTLPTraceEndpoint: viper.GetString("OTEL_EXPORTER_OTLP_ENDPOINT"),
     }
+
+    // Validate config
+    if cfg.Port == "" {
+        return nil, errors.New("PORT is required")
+    }
+    if cfg.DBEndpoint == "" {
+        return nil, errors.New("DB_ENDPOINT is required")
+    }
+    if cfg.DBUser == "" {
+        return nil, errors.New("DB_USER is required")
+    }
+    if cfg.DBName == "" {
+        return nil, errors.New("DB_NAME is required")
+    }
+    if cfg.RedisEndpoint == "" {
+        return nil, errors.New("REDIS_ENDPOINT is required")
+    }
+    if cfg.OTLPTraceEndpoint == "" {
+        return nil, errors.New("OTEL_EXPORTER_OTLP_ENDPOINT is required")
+    }
+
     return cfg, nil
 }
