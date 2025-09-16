@@ -13,8 +13,8 @@ import (
     "go.opentelemetry.io/otel/attribute"
     sdktrace "go.opentelemetry.io/otel/sdk/trace"
     "go.opentelemetry.io/otel/sdk/trace/tracetest"
-    "github.com/your-org/url-shortener/internal/config"
-    "github.com/your-org/url-shortener/internal/repositories"
+    "url-shortener/internal/config"
+    "url-shortener/internal/repositories"
 )
 
 func TestURLRepository_StoreURL(t *testing.T) {

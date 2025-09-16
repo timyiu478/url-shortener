@@ -20,10 +20,10 @@ import (
     "go.opentelemetry.io/otel/sdk/resource"
     "go.opentelemetry.io/otel/sdk/trace"
     semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
-    "github.com/your-org/url-shortener/internal/config"
-    "github.com/your-org/url-shortener/internal/handlers"
-    "github.com/your-org/url-shortener/internal/repositories"
-    "github.com/your-org/url-shortener/internal/services"
+    "url-shortener/internal/config"
+    "url-shortener/internal/handlers"
+    "url-shortener/internal/repositories"
+    "url-shortener/internal/services"
 )
 
 func main() {

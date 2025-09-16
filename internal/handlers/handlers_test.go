@@ -18,8 +18,8 @@ import (
     sdkmetric "go.opentelemetry.io/otel/sdk/metric"
     sdktrace "go.opentelemetry.io/otel/sdk/trace"
     "go.opentelemetry.io/otel/sdk/trace/tracetest"
-    "github.com/your-org/url-shortener/internal/handlers"
-    "github.com/your-org/url-shortener/internal/services"
+    "url-shortener/internal/handlers"
+    "url-shortener/internal/services"
 )
 
 type mockShortener struct {

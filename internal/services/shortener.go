@@ -12,7 +12,7 @@ import (
     "go.opentelemetry.io/otel/attribute"
     "go.opentelemetry.io/otel/trace"
     "github.com/go-sql-driver/mysql"
-    "github.com/your-org/url-shortener/internal/repositories"
+    "url-shortener/internal/repositories"
 )
 
 var tracer = otel.Tracer("url-shortener-services")
