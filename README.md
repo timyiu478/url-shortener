@@ -84,8 +84,8 @@ This architecture is designed with a focus on how the system scale globally for 
     - it is lightweight which take up less space and are easier to scale
     - it packaged all service dependences which enable us to deploy and test it consistently from the test environment to the production environment
 - The url-shorten service is stateless. We can deploy it in anywhere and at anytime.
-- Within the region, we favour consistency when under a network partition between the availability zones. Across the region, we favour availability when under a network partition.
-    - main reason: we want to ensure high data durability, yet we don't pay the cost of cross-region round-trip delay
+- Across the region, we favour availability over consistency when under a network partition.
+    - main reason: we want to ensure very high data durability and eventual consistency, yet we don't pay the cost of cross-region round-trip delay
 - The other necessary systems such as CI/CD system, intrusion detection/prevention systems, and observability system are omitted as intend
 - How to minimise hot spots and increase cache hit rate are also not discussed at this section
 - AWS services that we can use: Cloudfront, ALB, Aurora, Route53, ElastiCache, WAF
@@ -129,4 +129,4 @@ The mechanism can be realized in many established solutions that can support dif
 
 ## Future Works
 
-
+- cache strategy tunning e.g. *TTL*
