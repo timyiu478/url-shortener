@@ -3,9 +3,7 @@ package handlers
 import (
     "context"
     "encoding/json"
-		"database/sql"
-    "log"
-		"errors"
+    "log/slog"
     "net/http"
     "time"
 
@@ -35,14 +33,8 @@ func (h *Handler) ReadinessCheck(w http.ResponseWriter, r *http.Request) {
     defer cancel()
 
     if err := h.repo.PingDB(ctx); err != nil {
-        log.Printf("Readiness check failed: database error: %v", err)
+        slog.Error("Readiness check failed: database error")
         http.Error(w, "Database unhealthy", http.StatusServiceUnavailable)
-        return
-    }
-
-    if err := h.repo.PingCache(ctx); err != nil {
-        log.Printf("Readiness check failed: cache error: %v", err)
-        http.Error(w, "Cache unhealthy", http.StatusServiceUnavailable)
         return
     }
 
@@ -56,7 +48,7 @@ func (h *Handler) CreateShortURL(w http.ResponseWriter, r *http.Request) {
         Domain string `json:"domain"`
         URL    string `json:"url"`
     }
-    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.URL == "" || req.Domain == "" {
         http.Error(w, "Invalid request body", http.StatusBadRequest)
         return
     }
@@ -67,6 +59,7 @@ func (h *Handler) CreateShortURL(w http.ResponseWriter, r *http.Request) {
 					http.Error(w, "Invalid request body", http.StatusBadRequest)
 					return
 				}
+				slog.Error(err.Error())
         http.Error(w, "Internal server error", http.StatusInternalServerError)
         return
     }
@@ -84,16 +77,17 @@ func (h *Handler) CreateShortURL(w http.ResponseWriter, r *http.Request) {
 // GetOriginalURL handles GET /{shortKey}
 func (h *Handler) GetOriginalURL(w http.ResponseWriter, r *http.Request) {
     shortKey := chi.URLParam(r, "shortKey")
+
     originalURL, err := h.svc.GetOriginalURL(r.Context(), shortKey)
 
     if err != nil {
-        if errors.Is(err, sql.ErrNoRows) {
+			  if err.Error() == services.ErrInvalidShortKeyFormat.Error() || err.Error() == services.ErrShortKeyNotFound.Error() {
             http.Error(w, "URL not found", http.StatusNotFound)
             return
-        }
+				}
         http.Error(w, "Internal server error", http.StatusInternalServerError)
         return
     }
 
-    http.Redirect(w, r, originalURL, http.StatusFound)
+    http.Redirect(w, r, originalURL, http.StatusNotModified)
 }

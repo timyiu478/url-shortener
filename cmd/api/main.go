@@ -7,6 +7,7 @@ import (
     "os/signal"
     "syscall"
     "time"
+    "context"
 
     "github.com/go-chi/chi/v5"
     "url-shortener/internal/config"
@@ -34,15 +35,13 @@ func main() {
     }()
 
     // Initialize service and handler
-		shardMap := make(map[string]int)
-		shardMap[cfg.AWSRegion] = 0
-    svc := services.NewShortenerService(repo, shardMap[cfg.AWSRegion])
+    svc := services.NewShortenerService(repo, cfg.ShardId)
     h := handlers.NewHandler(svc, repo)
 
     // Set up HTTP router
     r := chi.NewRouter()
     r.Post("/newurl", h.CreateShortURL)
-    r.Get("/{shortKey}", h.GetOriginalURL)
+		r.Get("/{shortKey:[a-zA-Z0-9]{9}}", h.GetOriginalURL)
     r.Get("/healthz", h.HealthCheck)
     r.Get("/readyz", h.ReadinessCheck)
 

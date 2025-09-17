@@ -2,7 +2,6 @@ package repositories
 
 import (
     "context"
-    "errors"
     "fmt"
     "time"
 
@@ -11,7 +10,7 @@ import (
     "github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
     "github.com/aws/aws-sdk-go-v2/service/dynamodb"
     "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-    "url-shortener/internal/config"
+    icfg "url-shortener/internal/config"
 )
 
 var (
@@ -34,9 +33,10 @@ type urlRepository struct {
 }
 
 // NewURLRepository creates a new URLRepository with DynamoDB.
-func NewURLRepository(cfg *config.Config) (URLRepository, error) {
+func NewURLRepository(cfg *icfg.Config) (URLRepository, error) {
     awsCfg, err := config.LoadDefaultConfig(context.Background(),
         config.WithRegion(cfg.AWSRegion),
+        config.WithBaseEndpoint(cfg.AWSEndPoint),
     )
     if err != nil {
         return nil, fmt.Errorf("failed to load AWS config: %w", err)
@@ -55,18 +55,18 @@ func (r *urlRepository) Close() error {
 }
 
 // StoreURL stores a URL mapping in DynamoDB with conditional write to ensure uniqueness.
-func (r *urlRepository) StoreURL(ctx context.Context, shortKey, originalURL string) error {
+func (r *urlRepository) StoreURL(ctx context.Context, shortKey string, originalURL string) error {
     ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
     defer cancel()
 
     item := map[string]types.AttributeValue{
-        "shorten_key":  &types.AttributeValueMemberS{Value: shortKey},
+        "short_key":  &types.AttributeValueMemberS{Value: shortKey},
         "original_url": &types.AttributeValueMemberS{Value: originalURL},
     }
 
     input := &dynamodb.PutItemInput{
         TableName:           aws.String(r.tableName),
-        Item:               item,
+        Item:                item,
         ConditionExpression: aws.String("attribute_not_exists(short_key)"),
     }
 

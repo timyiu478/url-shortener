@@ -26,3 +26,16 @@ This separation ensures that each layer is independent, making the code easier t
        - uses a conditional `PutItem` with `ConditionExpression: attribute_not_exists(short_key)` to ensure the key doesn’t exist before writing 
           - https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/V2globaltables_HowItWorks.html#V2globaltables_HowItWorks.consistency-modes
 
+## Health Check
+
+- added health check endpoints `/healthz` and `/readyz` for determining the health and the readiness of the instance by external service e.g. kubernetes
+
+## TODO
+
+- proper error handling
+    - compare error type by the error string content is not ideal
+        - we should compare the error code
+    - make sure error messages are clear and descriptive.
+- add logging
+- increase unit test coverage
+- re-thinking how to generate the shorten key

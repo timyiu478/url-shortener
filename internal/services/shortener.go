@@ -1,8 +1,11 @@
 package services
 
 import (
+	  "log/slog"
     "context"
+		"regexp"
     "crypto/rand"
+		"math/big"
     "fmt"
     "net/url"
 
@@ -10,10 +13,11 @@ import (
 )
 
 var (
-	ErrGenUniqShortKeyFailed = fmt.Errorf("max attempts reached for unique short key")
+	ErrCreateShortURLFailed = fmt.Errorf("failed to create short URL")
 	ErrInvalidURLFormat = fmt.Errorf("invalid URL format")
 	ErrOriginalURLEmpty = fmt.Errorf("original URL is empty")
-	ErrShortKeyEmpty = fmt.Errorf("short key is empty")
+	ErrShortKeyNotFound = fmt.Errorf("short key is not found")
+	ErrInvalidShortKeyFormat = fmt.Errorf("invalid short key format")
 )
 
 type Shortener interface {
@@ -33,9 +37,11 @@ func NewShortenerService(repo repositories.URLRepository, shardId int) Shortener
 func (s *shortenerService) CreateShortURL(ctx context.Context, originalURL string) (string, error) {
     // Validate URL
     if originalURL == "" {
+			  slog.Error("Original URL is empty")
         return "", ErrOriginalURLEmpty
     }
     if _, err := url.ParseRequestURI(originalURL); err != nil {
+			  slog.Error("Invalid URL format")
         return "", ErrInvalidURLFormat
     }
 
@@ -55,17 +61,23 @@ func (s *shortenerService) CreateShortURL(ctx context.Context, originalURL strin
         }
         return "", err
     }
-    return "", ErrGenUniqShortKeyFailed
+		slog.Error("Failed to create short URL")
+    return "", ErrCreateShortURLFailed
 }
 
 func (s *shortenerService) GetOriginalURL(ctx context.Context, shortKey string) (string, error) {
-    if shortKey == "" {
-        return "", ErrShortKeyEmpty
-    }
+    match, err := regexp.MatchString( "^[a-zA-Z0-9]{9}$", shortKey)
+		if err != nil || !match {
+        return "", ErrInvalidShortKeyFormat
+		}
 
     originalURL, err := s.repo.GetURL(ctx, shortKey)
     if err != nil {
+			  if err.Error() == repositories.ErrURLNotFound.Error() {
+					return "", ErrShortKeyNotFound
+				}
         return "", err
+
     }
     return originalURL, nil
 }
@@ -76,10 +88,10 @@ func generateShortKey(shardId int) (string, error) {
 
 		result := make([]byte, keyLength) 
 
-		result[0] = base62Char[shardId]
+		result[0] = base62Chars[shardId]
 
 		for i := 1; i < keyLength; i++ {
-				num, err := rand.Int(rand.Reader, big.NewInt(62)))
+				num, err := rand.Int(rand.Reader, big.NewInt(62))
 				if err != nil {
 						return "", err
 				}

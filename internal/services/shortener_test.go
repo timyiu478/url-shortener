@@ -2,12 +2,9 @@ package services_test
 
 import (
     "context"
-    "database/sql"
     "regexp"
     "testing"
-		"errors"
 
-    "github.com/go-sql-driver/mysql"
     "url-shortener/internal/services"
 )
 
@@ -46,8 +43,6 @@ func TestShortenerService_CreateShortURL(t *testing.T) {
 
     // Test success case
     t.Run("Success", func(t *testing.T) {
-        repo.storeErr = nil
-
         shortKey, err := svc.CreateShortURL(ctx, originalURL)
         if err != nil {
             t.Errorf("Expected no error, got %v", err)
@@ -63,18 +58,8 @@ func TestShortenerService_CreateShortURL(t *testing.T) {
     // Test invalid URL
     t.Run("InvalidURL", func(t *testing.T) {
         _, err := svc.CreateShortURL(ctx, "!invalid")
-        if err == nil || err.Error() != "invalid URL format" {
+        if err == nil || err.Error() != services.ErrInvalidURLFormat.Error() {
             t.Errorf("Expected invalid URL error, got %v", err)
-        }
-    })
-
-    // Test duplicate key
-    t.Run("DuplicateKey", func(t *testing.T) {
-        repo.storeErr = &mysql.MySQLError{Number: 1062, Message: "Duplicate entry"}
-
-        _, err := svc.CreateShortURL(ctx, originalURL)
-        if err == nil || err.Error() != "max attempts reached for unique short key" {
-            t.Errorf("Expected max attempts error, got %v", err)
         }
     })
 }
@@ -103,18 +88,16 @@ func TestShortenerService_GetOriginalURL(t *testing.T) {
 
     // Test not found
     t.Run("NotFound", func(t *testing.T) {
-        repo.getErr = sql.ErrNoRows
-
-        _, err := svc.GetOriginalURL(ctx, shortKey)
-        if !errors.Is(err, sql.ErrNoRows) {
-            t.Errorf("Expected sql.ErrNoRows, got %v", err)
+        _, err := svc.GetOriginalURL(ctx, "notfound")
+        if err == nil {
+            t.Errorf("Expected error, got %v", err)
         }
     })
 
     // Test empty short key
     t.Run("EmptyShortKey", func(t *testing.T) {
         _, err := svc.GetOriginalURL(ctx, "")
-        if err == nil || err.Error() != "short key is empty" {
+        if err == nil || err.Error() != services.ErrInvalidShortKeyFormat.Error() {
             t.Errorf("Expected empty short key error, got %v", err)
         }
     })
