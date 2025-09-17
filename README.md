@@ -1,6 +1,9 @@
 # A URL shortener service
 
-A URL shortener service is a short link generator, consisting of assigning a unique key of few characters to a specific web page with the ability to redirect to the original URL. This document describes the URL shortener service from requirenets gathering, system architecture design, tech stack selection, database schema design, CI/CD design, and possible future works.
+A URL shortener service is a short link generator, consisting of assigning a unique key of few characters to a specific web page with the ability to redirect to the original URL. This document describes the a simple URL shortener service from requirenets gathering, system architecture design, tech stack selection, database schema design, CI/CD considerations, and possible future works. To know how to run 
+the service, please refer to [run_the_service.md](run_the_service.md).
+
+> This service is not production ready.
 
 ## Requirements
 
