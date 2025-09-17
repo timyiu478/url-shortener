@@ -60,7 +60,7 @@ func (r *urlRepository) StoreURL(ctx context.Context, shortKey, originalURL stri
     defer cancel()
 
     item := map[string]types.AttributeValue{
-        "short_key":    &types.AttributeValueMemberS{Value: shortKey},
+        "shorten_key":  &types.AttributeValueMemberS{Value: shortKey},
         "original_url": &types.AttributeValueMemberS{Value: originalURL},
     }
 
@@ -90,7 +90,7 @@ func (r *urlRepository) GetURL(ctx context.Context, shortKey string) (string, er
         Key: map[string]types.AttributeValue{
             "short_key": &types.AttributeValueMemberS{Value: shortKey},
         },
-        ConsistentRead: aws.Bool(true),
+        ConsistentRead: aws.Bool(false), // eventual consistency for better performance
     }
 
     result, err := r.client.GetItem(ctx, input)

@@ -104,8 +104,8 @@ func TestHandler_CreateShortURL(t *testing.T) {
 
         r.ServeHTTP(rr, req)
 
-        if rr.Code != http.StatusConflict {
-            t.Errorf("Expected status 409, got %d", rr.Code)
+        if rr.Code != http.StatusInternalServerError {
+            t.Errorf("Expected status 500, got %d", rr.Code)
         }
     })
 

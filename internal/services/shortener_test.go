@@ -39,7 +39,7 @@ func (m *mockRepository) Close() error {
 
 func TestShortenerService_CreateShortURL(t *testing.T) {
     repo := &mockRepository{}
-    svc := services.NewShortenerService(repo)
+    svc := services.NewShortenerService(repo, 0)
 
     ctx := context.Background()
     originalURL := "https://google.com"
@@ -81,7 +81,7 @@ func TestShortenerService_CreateShortURL(t *testing.T) {
 
 func TestShortenerService_GetOriginalURL(t *testing.T) {
     repo := &mockRepository{}
-    svc := services.NewShortenerService(repo)
+    svc := services.NewShortenerService(repo, 0)
 
     ctx := context.Background()
     shortKey := "g20hi3k9Z"

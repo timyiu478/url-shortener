@@ -11,20 +11,18 @@ This separation ensures that each layer is independent, making the code easier t
 
 ## Key Generation
 
-- randomly produce a 9-character key using Base62 (0-9, A-Z, a-z), providing $ 62^9 \approx 2^{53.6} $ , sufficient for billions of URLs with low collision probability.
-- implement the retry-on-collision logic (up to 5 attempts) for duplicate key errors (MySQL error code 1062).
-    - The retry-on-collision logic is **concurrency-safe** and avoid write-write conflict with the help of the database's unique constraint on the `short_key` column and the row-level locking.
+- produce a short key by randomly generating a 8 numbers with base62 (0-9, A-Z, a-z) encoding, providing $62^8$, sufficient for millions of URLs with low collision probability.
+    - the 1 character is reserved for sharding per region
+    - pros: 
+        - simple
+        - keeps the service stateless
+        - supports parallel writes per region without worrying about collisions across regions
+    - cons:
+        - reduce the key space by 1 character
+        - no test result provided for collision rate
+        - no real world usage data to validate the approach
+- implement the retry-on-collision logic (up to 3 attempts) for duplicate key errors.
+    - The retry-on-collision logic is **concurrency-safe** within region.
+       - uses a conditional `PutItem` with `ConditionExpression: attribute_not_exists(short_key)` to ensure the key doesn’t exist before writing 
+          - https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/V2globaltables_HowItWorks.html#V2globaltables_HowItWorks.consistency-modes
 
-
-## Scalability and Performance
-
-- Cache-Aside: Redirects (GET) use ElastiCache for fast reads, handling the read-heavy workload and supporting 1000+ req/s. Aurora’s indexing (INDEX idx_short_key) ensures efficient lookups for cache misses.
-- Stateless Service: The key generation logic keeps the service stateless without relying on application-level coordination.
-
-## Graceful shutdown
-
-
-
-## Health check and Monitoring
-
-- added 

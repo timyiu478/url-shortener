@@ -9,12 +9,9 @@ import (
 
 type Config struct {
     Port              string
-    DBEndpoint        string
-    DBUser            string
-    DBPassword        string
-    DBName            string
-    RedisEndpoint     string
-    OTLPTraceEndpoint string
+		DynamoDBTable     string
+		AWSRegion         string
+		ShardId           int
 }
 
 func Load() (*Config, error) {
@@ -23,12 +20,9 @@ func Load() (*Config, error) {
     viper.AutomaticEnv()
 
     viper.SetDefault("PORT", "8080")
-    viper.SetDefault("DB_ENDPOINT", "localhost:3306")
-    viper.SetDefault("DB_USER", "user")
-    viper.SetDefault("DB_PASSWORD", "password")
-    viper.SetDefault("DB_NAME", "urlshortener")
-    viper.SetDefault("REDIS_ENDPOINT", "localhost:6379")
-    viper.SetDefault("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4318")
+    viper.SetDefault("DYNAMODB_TABLE", "urls")
+    viper.SetDefault("AWS_REGION", "us-east-1")
+    viper.SetDefault("ShardId", "0")
 
     if err := viper.ReadInConfig(); err != nil {
         if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
@@ -38,32 +32,23 @@ func Load() (*Config, error) {
 
     cfg := &Config{
         Port:              viper.GetString("PORT"),
-        DBEndpoint:        viper.GetString("DB_ENDPOINT"),
-        DBUser:            viper.GetString("DB_USER"),
-        DBPassword:        viper.GetString("DB_PASSWORD"),
-        DBName:            viper.GetString("DB_NAME"),
-        RedisEndpoint:     viper.GetString("REDIS_ENDPOINT"),
-        OTLPTraceEndpoint: viper.GetString("OTEL_EXPORTER_OTLP_ENDPOINT"),
+        DynamoDBTable:     viper.GetString("DynamoDBTable"),
+        AWSRegion:         viper.GetString("AWSRegion"),
+        ShardId:           viper.GetInt("SHARDID")
     }
 
     // Validate config
     if cfg.Port == "" {
         return nil, errors.New("PORT is required")
     }
-    if cfg.DBEndpoint == "" {
-        return nil, errors.New("DB_ENDPOINT is required")
+    if cfg.DynamoDBTable == "" {
+        return nil, errors.New("DYNAMODB_TABLe is required")
     }
-    if cfg.DBUser == "" {
-        return nil, errors.New("DB_USER is required")
+    if cfg.AWSRegion == "" {
+        return nil, errors.New("AWS_REGION is required")
     }
-    if cfg.DBName == "" {
-        return nil, errors.New("DB_NAME is required")
-    }
-    if cfg.RedisEndpoint == "" {
-        return nil, errors.New("REDIS_ENDPOINT is required")
-    }
-    if cfg.OTLPTraceEndpoint == "" {
-        return nil, errors.New("OTEL_EXPORTER_OTLP_ENDPOINT is required")
+    if cfg.ShardId < 0 || cfg.ShardId > 61 {
+        return nil, errors.New("SHARDID is required")
     }
 
     return cfg, nil

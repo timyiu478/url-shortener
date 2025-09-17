@@ -10,7 +10,6 @@ import (
     "time"
 
     "github.com/go-chi/chi/v5"
-    "github.com/go-sql-driver/mysql"
     "url-shortener/internal/repositories"
     "url-shortener/internal/services"
 )
@@ -68,10 +67,6 @@ func (h *Handler) CreateShortURL(w http.ResponseWriter, r *http.Request) {
 					http.Error(w, "Invalid request body", http.StatusBadRequest)
 					return
 				}
-        if mysqlErr, ok := err.(*mysql.MySQLError); ok && mysqlErr.Number == 1062 {
-            http.Error(w, "Short key conflict", http.StatusConflict)
-            return
-        }
         http.Error(w, "Internal server error", http.StatusInternalServerError)
         return
     }

@@ -27,6 +27,8 @@ EXPOSE 8080
 
 # Set environment variables (can be overridden at runtime)
 ENV PORT=8080
+ENV AWS_REGION=us-east-1
+ENV DYNAMODB_TABLE=url_mappings
 
 # Run the application
 CMD ["./urlshortener"]

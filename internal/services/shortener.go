@@ -6,19 +6,15 @@ import (
     "fmt"
     "net/url"
 
-    "github.com/go-sql-driver/mysql"
     "url-shortener/internal/repositories"
 )
 
 var (
-	ErrOriginalURLEmpty = fmt.Errorf("original URL is empty")
-	ErrInvalidURLFormat = fmt.Errorf("invalid URL format")
 	ErrGenUniqShortKeyFailed = fmt.Errorf("max attempts reached for unique short key")
+	ErrInvalidURLFormat = fmt.Errorf("invalid URL format")
+	ErrOriginalURLEmpty = fmt.Errorf("original URL is empty")
 	ErrShortKeyEmpty = fmt.Errorf("short key is empty")
 )
-
-// Base62 characters
-const base62Chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 type Shortener interface {
     CreateShortURL(ctx context.Context, originalURL string) (string, error)
@@ -27,10 +23,11 @@ type Shortener interface {
 
 type shortenerService struct {
     repo repositories.URLRepository
+	  shardId int
 }
 
-func NewShortenerService(repo repositories.URLRepository) Shortener {
-    return &shortenerService{repo: repo}
+func NewShortenerService(repo repositories.URLRepository, shardId int) Shortener {
+	return &shortenerService{repo: repo, shardId: shardId}
 }
 
 func (s *shortenerService) CreateShortURL(ctx context.Context, originalURL string) (string, error) {
@@ -45,7 +42,7 @@ func (s *shortenerService) CreateShortURL(ctx context.Context, originalURL strin
     const maxAttempts = 3
 
     for attempt := 0; attempt < maxAttempts; attempt++ {
-        shortKey, err := generateShortKey()
+        shortKey, err := generateShortKey(s.shardId)
         if err != nil {
             return "", err
         }
@@ -53,7 +50,7 @@ func (s *shortenerService) CreateShortURL(ctx context.Context, originalURL strin
         if err == nil {
             return shortKey, nil
         }
-        if mysqlErr, ok := err.(*mysql.MySQLError); ok && mysqlErr.Number == 1062 {
+        if err.Error() == repositories.ErrDuplicateKey.Error() {
             continue
         }
         return "", err
@@ -73,29 +70,21 @@ func (s *shortenerService) GetOriginalURL(ctx context.Context, shortKey string) 
     return originalURL, nil
 }
 
-func generateShortKey() (string, error) {
-    b := make([]byte, 7) // ~9 chars in Base62
-    _, err := rand.Read(b)
-    if err != nil {
-        return "", fmt.Errorf("failed to generate random bytes: %w", err)
-    }
-    // Convert to Base62
-    var num uint64
-    for i, v := range b {
-        num |= uint64(v) << (8 * i)
-    }
-    result := make([]byte, 0, 9)
-    for num > 0 && len(result) < 9 {
-        result = append(result, base62Chars[num%62])
-        num /= 62
-    }
-    // Pad with '0' if necessary to ensure 9 characters
-    for len(result) < 9 {
-        result = append(result, '0')
-    }
-    // Reverse the result to get correct order
-    for i, j := 0, len(result)-1; i < j; i, j = i+1, j-1 {
-        result[i], result[j] = result[j], result[i]
-    }
+func generateShortKey(shardId int) (string, error) {
+		const keyLength = 9
+	  const base62Chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+		result := make([]byte, keyLength) 
+
+		result[0] = base62Char[shardId]
+
+		for i := 1; i < keyLength; i++ {
+				num, err := rand.Int(rand.Reader, big.NewInt(62)))
+				if err != nil {
+						return "", err
+				}
+				result[i] = base62Chars[num.Int64()]
+		}
+
     return string(result), nil
 }

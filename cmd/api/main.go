@@ -1,7 +1,6 @@
 package main
 
 import (
-		"context"
     "log"
     "net/http"
     "os"
@@ -35,7 +34,9 @@ func main() {
     }()
 
     // Initialize service and handler
-    svc := services.NewShortenerService(repo)
+		shardMap := make(map[string]int)
+		shardMap[cfg.AWSRegion] = 0
+    svc := services.NewShortenerService(repo, shardMap[cfg.AWSRegion])
     h := handlers.NewHandler(svc, repo)
 
     // Set up HTTP router
@@ -55,7 +56,7 @@ func main() {
     }
 
     // Handle graceful shutdown
-    stop := make(chan os.Signal, 1)
+    stop := make(chan os.Signal, 5)
     signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
     go func() {
