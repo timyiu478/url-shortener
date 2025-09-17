@@ -202,10 +202,6 @@ Here is the example of how to create a dynamdb table into the local dynamdb inst
 
 ## Possible Future Works
 
-- automated end to end tests
-- consider cache strategy
-    - should we set *TTL* to 0?
-    - cache eviction policy: eg. LRU or LFU?
 - make sure the shortenUrl key generation collision ratio is lower than our expectation
 - support metrics endpoint and distributed tracing for observability and alert system integration
     - Key Metrics for the web server: 
