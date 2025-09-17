@@ -111,14 +111,14 @@ func TestHandler_CreateShortURL(t *testing.T) {
 
     // Error case: invalid URL
     t.Run("InvalidURL", func(t *testing.T) {
-        mockSvc := &mockShortener{createErr: errors.New("invalid URL format: parse \"invalid\": invalid URI for request")}
+        mockSvc := &mockShortener{createErr: errors.New("invalid URL format")}
         mockRepo := &mockRepository{}
         h := handlers.NewHandler(mockSvc, mockRepo)
 
         r := chi.NewRouter()
         r.Post("/newurl", h.CreateShortURL)
 
-        reqBody, _ := json.Marshal(map[string]string{"domain": "shortenurl.org", "url": "invalid"})
+        reqBody, _ := json.Marshal(map[string]string{"domain": "shortenurl.org", "url": "!invalid"})
         req := httptest.NewRequest("POST", "/newurl", bytes.NewReader(reqBody))
         rr := httptest.NewRecorder()
 

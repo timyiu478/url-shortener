@@ -1,11 +1,11 @@
 package main
 
 import (
+    "io"
     "bytes"
     "encoding/json"
     "net/http"
     "regexp"
-    "strings"
     "testing"
     "time"
 
@@ -19,17 +19,19 @@ func TestEndToEnd(t *testing.T) {
     // Test health check
     t.Run("HealthCheck", func(t *testing.T) {
         resp, err := http.Get(baseURL + "/healthz")
+				body, _ := io.ReadAll(resp.Body)
         assert.NoError(t, err)
         assert.Equal(t, http.StatusOK, resp.StatusCode)
-        assert.Equal(t, "OK", string(resp.Body))
+        assert.Equal(t, "OK", string(body))
     })
 
     // Test readiness check
     t.Run("ReadinessCheck", func(t *testing.T) {
         resp, err := http.Get(baseURL + "/readyz")
+				body, _ := io.ReadAll(resp.Body)
         assert.NoError(t, err)
         assert.Equal(t, http.StatusOK, resp.StatusCode)
-        assert.Equal(t, "OK", string(resp.Body))
+        assert.Equal(t, "OK", string(body))
     })
 
     // Test create and get URL

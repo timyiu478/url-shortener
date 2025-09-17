@@ -2,203 +2,156 @@ package repositories_test
 
 import (
     "context"
-    "database/sql"
-    "errors"
-    "strings"
     "testing"
     "time"
 
-    "github.com/DATA-DOG/go-sqlmock"
-    "github.com/go-sql-driver/mysql"
-    "github.com/redis/go-redis/v9"
+    "github.com/aws/aws-sdk-go-v2/aws"
+    "github.com/aws/aws-sdk-go-v2/service/dynamodb"
+    "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+    "url-shortener/internal/config"
     "url-shortener/internal/repositories"
 )
 
-func TestURLRepository_StoreURL(t *testing.T) {
-    // Setup mocks
-    db, mock, err := sqlmock.New()
+// mockDynamoDBClient is a test double for DynamoDB.
+type mockDynamoDBClient struct {
+    putItemFunc       func(ctx context.Context, input *dynamodb.PutItemInput) (*dynamodb.PutItemOutput, error)
+    getItemFunc       func(ctx context.Context, input *dynamodb.GetItemInput) (*dynamodb.GetItemOutput, error)
+    describeTableFunc func(ctx context.Context, input *dynamodb.DescribeTableInput) (*dynamodb.DescribeTableOutput, error)
+}
+
+func (m *mockDynamoDBClient) PutItem(ctx context.Context, input *dynamodb.PutItemInput, opts ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
+    return m.putItemFunc(ctx, input)
+}
+
+func (m *mockDynamoDBClient) GetItem(ctx context.Context, input *dynamodb.GetItemInput, opts ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error) {
+    return m.getItemFunc(ctx, input)
+}
+
+func (m *mockDynamoDBClient) DescribeTable(ctx context.Context, input *dynamodb.DescribeTableInput, opts ...func(*dynamodb.Options)) (*dynamodb.DescribeTableOutput, error) {
+    return m.describeTableFunc(ctx, input)
+}
+
+func setupTestConfig() *config.Config {
+    return &config.Config{
+        AWSRegion:        "us-west-2",
+        DynamoDBTableName: "urls",
+    }
+}
+
+func TestNewURLRepository(t *testing.T) {
+    cfg := setupTestConfig()
+    repo, err := repositories.NewURLRepository(cfg)
     if err != nil {
-        t.Fatalf("Failed to create sqlmock: %v", err)
+        t.Fatalf("NewURLRepository failed: %v", err)
     }
-    defer db.Close()
+    defer repo.Close()
 
-    redisClient := redis.NewClient(&redis.Options{})
-    defer redisClient.Close()
-
-    repo := repositories.urlRepository{
-        db:    db,
-        cache: redisClient,
+    if _, ok := repo.(*repositories.urlRepository); !ok {
+        t.Error("NewURLRepository returned wrong type")
     }
+}
 
+func TestStoreURL(t *testing.T) {
+    cfg := setupTestConfig()
+    mockClient := &mockDynamoDBClient{
+        putItemFunc: func(ctx context.Context, input *dynamodb.PutItemInput) (*dynamodb.PutItemOutput, error) {
+            return &dynamodb.PutItemOutput{}, nil
+        },
+    }
+    repo := &repositories.urlRepository{client: mockClient, tableName: cfg.DynamoDBTableName}
     ctx := context.Background()
-    shortKey := "g20hi3k9Z"
-    originalURL := "https://google.com"
+    shortKey := "abc123"
+    originalURL := "https://example.com"
 
-    // Test success case
-    t.Run("Success", func(t *testing.T) {
-        mock.ExpectExec("INSERT INTO urls").
-            WithArgs(shortKey, originalURL, sqlmock.AnyArg()).
-            WillReturnResult(sqlmock.NewResult(1, 1))
-        redisClient.FlushAll(ctx)
-
-        err := repo.StoreURL(ctx, shortKey, originalURL)
-        if err != nil {
-            t.Errorf("Expected no error, got %v", err)
-        }
-
-        // Verify cache
-        val, err := redisClient.Get(ctx, shortKey).Result()
-        if err != nil || val != originalURL {
-            t.Errorf("Expected cache value %s, got %s, err %v", originalURL, val, err)
-        }
-    })
-
-    // Test duplicate key error
-    t.Run("DuplicateKey", func(t *testing.T) {
-        mock.ExpectExec("INSERT INTO urls").
-            WithArgs(shortKey, originalURL, sqlmock.AnyArg()).
-            WillReturnError(&mysql.MySQLError{Number: 1062, Message: "Duplicate entry"})
-        redisClient.FlushAll(ctx)
-
-        err := repo.StoreURL(ctx, shortKey, originalURL)
-        if err == nil || !errors.As(err, &mysql.MySQLError{}) {
-            t.Errorf("Expected duplicate key error, got %v", err)
-        }
-    })
-
-    // Test cache set error
-    t.Run("CacheSetError", func(t *testing.T) {
-        mock.ExpectExec("INSERT INTO urls").
-            WithArgs(shortKey, originalURL, sqlmock.AnyArg()).
-            WillReturnResult(sqlmock.NewResult(1, 1))
-        redisClient.Close() // Simulate cache failure
-
-        err := repo.StoreURL(ctx, shortKey, originalURL)
-        if err == nil || !strings.Contains(err.Error(), "failed to set cache") {
-            t.Errorf("Expected cache set error, got %v", err)
-        }
-    })
+    err := repo.StoreURL(ctx, shortKey, originalURL)
+    if err != nil {
+        t.Errorf("StoreURL failed: %v", err)
+    }
 }
 
-func TestURLRepository_GetURL(t *testing.T) {
-    db, mock, err := sqlmock.New()
-    if err != nil {
-        t.Fatalf("Failed to create sqlmock: %v", err)
+func TestStoreURL_DuplicateKey(t *testing.T) {
+    cfg := setupTestConfig()
+    mockClient := &mockDynamoDBClient{
+        putItemFunc: func(ctx context.Context, input *dynamodb.PutItemInput) (*dynamodb.PutItemOutput, error) {
+            return nil, &types.ConditionalCheckFailedException{}
+        },
     }
-    defer db.Close()
-
-    redisClient := redis.NewClient(&redis.Options{})
-    defer redisClient.Close()
-
-    repo := &repositories.urlRepository{
-        db:    db,
-        cache: redisClient,
-    }
-
+    repo := &repositories.urlRepository{client: mockClient, tableName: cfg.DynamoDBTableName}
     ctx := context.Background()
-    shortKey := "g20hi3k9Z"
-    originalURL := "https://google.com"
+    shortKey := "abc123"
+    originalURL := "https://example.com"
 
-    // Test cache hit
-    t.Run("CacheHit", func(t *testing.T) {
-        redisClient.FlushAll(ctx)
-        redisClient.Set(ctx, shortKey, originalURL, 24*time.Hour)
-
-        result, err := repo.GetURL(ctx, shortKey)
-        if err != nil {
-            t.Errorf("Expected no error, got %v", err)
-        }
-        if result != originalURL {
-            t.Errorf("Expected %s, got %s", originalURL, result)
-        }
-    })
-
-    // Test cache miss, DB hit
-    t.Run("CacheMissDBHit", func(t *testing.T) {
-        redisClient.FlushAll(ctx)
-        mock.ExpectQuery("SELECT original_url FROM urls").
-            WithArgs(shortKey).
-            WillReturnRows(sqlmock.NewRows([]string{"original_url"}).AddRow(originalURL))
-
-        result, err := repo.GetURL(ctx, shortKey)
-        if err != nil {
-            t.Errorf("Expected no error, got %v", err)
-        }
-        if result != originalURL {
-            t.Errorf("Expected %s, got %s", originalURL, result)
-        }
-
-        // Verify cache
-        val, err := redisClient.Get(ctx, shortKey).Result()
-        if err != nil || val != originalURL {
-            t.Errorf("Expected cache value %s, got %s, err %v", originalURL, val, err)
-        }
-    })
-
-    // Test cache miss, DB miss
-    t.Run("CacheMissDBMiss", func(t *testing.T) {
-        redisClient.FlushAll(ctx)
-        mock.ExpectQuery("SELECT original_url FROM urls").
-            WithArgs(shortKey).
-            WillReturnError(sql.ErrNoRows)
-
-        _, err := repo.GetURL(ctx, shortKey)
-        if !errors.Is(err, sql.ErrNoRows) {
-            t.Errorf("Expected sql.ErrNoRows, got %v", err)
-        }
-    })
-}
-
-func TestURLRepository_PingDB(t *testing.T) {
-    db, mock, err := sqlmock.New()
-    if err != nil {
-        t.Fatalf("Failed to create sqlmock: %v", err)
+    err := repo.StoreURL(ctx, shortKey, originalURL)
+    if err == nil {
+        t.Error("Expected duplicate key error, got none")
     }
-    defer db.Close()
-
-    repo := &repositories.urlRepository{db: db}
-
-    // Success case
-    t.Run("Success", func(t *testing.T) {
-        mock.ExpectPing()
-
-        err := repo.PingDB(context.Background())
-        if err != nil {
-            t.Errorf("Expected no error, got %v", err)
-        }
-    })
-
-    // Failure case
-    t.Run("Failure", func(t *testing.T) {
-        mock.ExpectPing().WillReturnError(errors.New("db connection failed"))
-
-        err := repo.PingDB(context.Background())
-        if err == nil {
-            t.Errorf("Expected error, got nil")
-        }
-    })
+    if !errors.Is(err, repositories.ErrDuplicateKey) {
+        t.Errorf("Expected ErrDuplicateKey, got %v", err)
+    }
 }
 
-func TestURLRepository_PingCache(t *testing.T) {
-    redisClient := redis.NewClient(&redis.Options{})
-    defer redisClient.Close()
+func TestGetURL(t *testing.T) {
+    cfg := setupTestConfig()
+    mockClient := &mockDynamoDBClient{
+        getItemFunc: func(ctx context.Context, input *dynamodb.GetItemInput) (*dynamodb.GetItemOutput, error) {
+            return &dynamodb.GetItemOutput{
+                Item: map[string]types.AttributeValue{
+                    "short_key":    &types.AttributeValueMemberS{Value: "abc123"},
+                    "original_url": &types.AttributeValueMemberS{Value: "https://example.com"},
+                },
+            }, nil
+        },
+    }
+    repo := &repositories.urlRepository{client: mockClient, tableName: cfg.DynamoDBTableName}
+    ctx := context.Background()
+    shortKey := "abc123"
+    originalURL := "https://example.com"
 
-    repo := &repositories.urlRepository{cache: redisClient}
+    gotURL, err := repo.GetURL(ctx, shortKey)
+    if err != nil || gotURL != originalURL {
+        t.Errorf("GetURL failed: got %s, want %s, err: %v", gotURL, originalURL, err)
+    }
+}
 
-    // Success case
-    t.Run("Success", func(t *testing.T) {
-        err := repo.PingCache(context.Background())
-        if err != nil {
-            t.Errorf("Expected no error, got %v", err)
-        }
-    })
+func TestGetURL_NotFound(t *testing.T) {
+    cfg := setupTestConfig()
+    mockClient := &mockDynamoDBClient{
+        getItemFunc: func(ctx context.Context, input *dynamodb.GetItemInput) (*dynamodb.GetItemOutput, error) {
+            return &dynamodb.GetItemOutput{Item: nil}, nil
+        },
+    }
+    repo := &repositories.urlRepository{client: mockClient, tableName: cfg.DynamoDBTableName}
+    ctx := context.Background()
 
-    // Failure case
-    t.Run("Failure", func(t *testing.T) {
-        redisClient.Close() // Simulate failure
-        err := repo.PingCache(context.Background())
-        if err == nil {
-            t.Errorf("Expected error, got nil")
-        }
-    })
+    _, err := repo.GetURL(ctx, "abc123")
+    if err == nil || !errors.Is(err, repositories.ErrURLNotFound) {
+        t.Errorf("Expected ErrURLNotFound, got %v", err)
+    }
+}
+
+func TestPingDB(t *testing.T) {
+    cfg := setupTestConfig()
+    mockClient := &mockDynamoDBClient{
+        describeTableFunc: func(ctx context.Context, input *dynamodb.DescribeTableInput) (*dynamodb.DescribeTableOutput, error) {
+            return &dynamodb.DescribeTableOutput{}, nil
+        },
+    }
+    repo := &repositories.urlRepository{client: mockClient, tableName: cfg.DynamoDBTableName}
+    ctx := context.Background()
+
+    err := repo.PingDB(ctx)
+    if err != nil {
+        t.Errorf("PingDB failed: %v", err)
+    }
+}
+
+func TestClose(t *testing.T) {
+    cfg := setupTestConfig()
+    mockClient := &mockDynamoDBClient{}
+    repo := &repositories.urlRepository{client: mockClient, tableName: cfg.DynamoDBTableName}
+
+    err := repo.Close()
+    if err != nil {
+        t.Errorf("Close failed: %v", err)
+    }
 }

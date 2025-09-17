@@ -62,8 +62,8 @@ func TestShortenerService_CreateShortURL(t *testing.T) {
 
     // Test invalid URL
     t.Run("InvalidURL", func(t *testing.T) {
-        _, err := svc.CreateShortURL(ctx, "invalid")
-        if err == nil || err.Error() != "invalid URL format: parse \"invalid\": invalid URI for request" {
+        _, err := svc.CreateShortURL(ctx, "!invalid")
+        if err == nil || err.Error() != "invalid URL format" {
             t.Errorf("Expected invalid URL error, got %v", err)
         }
     })

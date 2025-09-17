@@ -2,118 +2,125 @@ package repositories
 
 import (
     "context"
-    "database/sql"
-    "sync"
+    "errors"
+    "fmt"
     "time"
-		"fmt"
 
-    "github.com/go-sql-driver/mysql"
-    "github.com/redis/go-redis/v9"
+    "github.com/aws/aws-sdk-go-v2/aws"
+    "github.com/aws/aws-sdk-go-v2/config"
+    "github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
+    "github.com/aws/aws-sdk-go-v2/service/dynamodb"
+    "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
     "url-shortener/internal/config"
 )
 
+var (
+	ErrURLNotFound = fmt.Errorf("URL not found")
+  ErrDuplicateKey = fmt.Errorf("duplicate short key")
+)
+
+// URLRepository defines the interface for URL storage operations.
 type URLRepository interface {
     StoreURL(ctx context.Context, shortKey, originalURL string) error
     GetURL(ctx context.Context, shortKey string) (string, error)
     PingDB(ctx context.Context) error
-    PingCache(ctx context.Context) error
     Close() error
 }
 
+// urlRepository implements URLRepository using DynamoDB.
 type urlRepository struct {
-    db    *sql.DB
-    cache *redis.Client
-    mu    sync.Mutex // For safe closing
+    client    *dynamodb.Client
+    tableName string
 }
 
+// NewURLRepository creates a new URLRepository with DynamoDB.
 func NewURLRepository(cfg *config.Config) (URLRepository, error) {
-    dbCfg := mysql.Config{
-        User:   cfg.DBUser,
-        Passwd: cfg.DBPassword,
-        Net:    "tcp",
-        Addr:   cfg.DBEndpoint,
-        DBName: cfg.DBName,
-    }
-    db, err := sql.Open("mysql", dbCfg.FormatDSN())
+    awsCfg, err := config.LoadDefaultConfig(context.Background(),
+        config.WithRegion(cfg.AWSRegion),
+    )
     if err != nil {
-        return nil, fmt.Errorf("failed to open database: %w", err)
+        return nil, fmt.Errorf("failed to load AWS config: %w", err)
     }
-    db.SetMaxOpenConns(10)
-    db.SetMaxIdleConns(5)
 
-    cache := redis.NewClient(&redis.Options{
-        Addr: cfg.RedisEndpoint,
-    })
-
-    return &urlRepository{db: db, cache: cache}, nil
+    client := dynamodb.NewFromConfig(awsCfg)
+    return &urlRepository{
+        client:    client,
+        tableName: cfg.DynamoDBTableName,
+    }, nil
 }
 
+// Close is a no-op for DynamoDB, as it’s serverless and manages connections internally.
 func (r *urlRepository) Close() error {
-    r.mu.Lock()
-    defer r.mu.Unlock()
-
-    var errs []error
-    if err := r.cache.Close(); err != nil {
-        errs = append(errs, fmt.Errorf("failed to close cache: %w", err))
-    }
-    if err := r.db.Close(); err != nil {
-        errs = append(errs, fmt.Errorf("failed to close database: %w", err))
-    }
-    if len(errs) > 0 {
-        return fmt.Errorf("errors closing resources: %v", errs)
-    }
     return nil
 }
 
+// StoreURL stores a URL mapping in DynamoDB with conditional write to ensure uniqueness.
 func (r *urlRepository) StoreURL(ctx context.Context, shortKey, originalURL string) error {
-    // Add timeout for DB operation
     ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
     defer cancel()
 
-    query := "INSERT INTO urls (short_key, original_url, created_at) VALUES (?, ?, ?)"
-    _, err := r.db.ExecContext(ctx, query, shortKey, originalURL, time.Now())
-    if err != nil {
-        return err
+    item := map[string]types.AttributeValue{
+        "short_key":    &types.AttributeValueMemberS{Value: shortKey},
+        "original_url": &types.AttributeValueMemberS{Value: originalURL},
     }
 
-    err = r.cache.SetEx(ctx, shortKey, originalURL, 24*time.Hour).Err()
+    input := &dynamodb.PutItemInput{
+        TableName:           aws.String(r.tableName),
+        Item:               item,
+        ConditionExpression: aws.String("attribute_not_exists(short_key)"),
+    }
+
+    _, err := r.client.PutItem(ctx, input)
     if err != nil {
-        return fmt.Errorf("failed to set cache: %w", err)
+        if _, ok := err.(*types.ConditionalCheckFailedException); ok {
+            return ErrDuplicateKey
+        }
+        return fmt.Errorf("failed to store URL: %w", err)
     }
     return nil
 }
 
+// GetURL retrieves a URL from DynamoDB.
 func (r *urlRepository) GetURL(ctx context.Context, shortKey string) (string, error) {
-    val, err := r.cache.Get(ctx, shortKey).Result()
-    if err == nil {
-        return val, nil
-    }
-
-    // Add timeout for DB operation
     ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
     defer cancel()
 
-    var originalURL string
-    err = r.db.QueryRowContext(ctx, "SELECT original_url FROM urls WHERE short_key = ?", shortKey).Scan(&originalURL)
+    input := &dynamodb.GetItemInput{
+        TableName:      aws.String(r.tableName),
+        Key: map[string]types.AttributeValue{
+            "short_key": &types.AttributeValueMemberS{Value: shortKey},
+        },
+        ConsistentRead: aws.Bool(true),
+    }
 
+    result, err := r.client.GetItem(ctx, input)
     if err != nil {
-        return "", err
+        return "", fmt.Errorf("failed to get URL: %w", err)
+    }
+    if result.Item == nil {
+        return "", ErrURLNotFound
     }
 
-
-    if err := r.cache.SetEx(ctx, shortKey, originalURL, 24*time.Hour).Err(); err != nil {
-        return originalURL, nil // Return URL despite cache error to maintain functionality
+    var item struct {
+        OriginalURL string `dynamodbav:"original_url"`
     }
-
-    return originalURL, nil
+    err = attributevalue.UnmarshalMap(result.Item, &item)
+    if err != nil {
+        return "", fmt.Errorf("failed to unmarshal item: %w", err)
+    }
+    return item.OriginalURL, nil
 }
 
+// PingDB checks DynamoDB connectivity by describing the table.
 func (r *urlRepository) PingDB(ctx context.Context) error {
-    err := r.db.PingContext(ctx)
-    return err
-}
+    ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+    defer cancel()
 
-func (r *urlRepository) PingCache(ctx context.Context) error {
-    _, err := r.cache.Ping(ctx).Result()
-    return err
+    _, err := r.client.DescribeTable(ctx, &dynamodb.DescribeTableInput{
+        TableName: aws.String(r.tableName),
+    })
+    if err != nil {
+        return fmt.Errorf("failed to ping DynamoDB: %w", err)
+    }
+    return nil
 }

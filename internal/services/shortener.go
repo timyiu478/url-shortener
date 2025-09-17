@@ -3,12 +3,18 @@ package services
 import (
     "context"
     "crypto/rand"
-    "errors"
     "fmt"
     "net/url"
 
     "github.com/go-sql-driver/mysql"
     "url-shortener/internal/repositories"
+)
+
+var (
+	ErrOriginalURLEmpty = fmt.Errorf("original URL is empty")
+	ErrInvalidURLFormat = fmt.Errorf("invalid URL format")
+	ErrGenUniqShortKeyFailed = fmt.Errorf("max attempts reached for unique short key")
+	ErrShortKeyEmpty = fmt.Errorf("short key is empty")
 )
 
 // Base62 characters
@@ -30,15 +36,14 @@ func NewShortenerService(repo repositories.URLRepository) Shortener {
 func (s *shortenerService) CreateShortURL(ctx context.Context, originalURL string) (string, error) {
     // Validate URL
     if originalURL == "" {
-        err := errors.New("original URL is empty")
-        return "", err
+        return "", ErrOriginalURLEmpty
     }
     if _, err := url.ParseRequestURI(originalURL); err != nil {
-        err = fmt.Errorf("invalid URL format: %w", err)
-        return "", err
+        return "", ErrInvalidURLFormat
     }
 
     const maxAttempts = 3
+
     for attempt := 0; attempt < maxAttempts; attempt++ {
         shortKey, err := generateShortKey()
         if err != nil {
@@ -53,14 +58,12 @@ func (s *shortenerService) CreateShortURL(ctx context.Context, originalURL strin
         }
         return "", err
     }
-    err := errors.New("max attempts reached for unique short key")
-    return "", err
+    return "", ErrGenUniqShortKeyFailed
 }
 
 func (s *shortenerService) GetOriginalURL(ctx context.Context, shortKey string) (string, error) {
     if shortKey == "" {
-        err := errors.New("short key is empty")
-        return "", err
+        return "", ErrShortKeyEmpty
     }
 
     originalURL, err := s.repo.GetURL(ctx, shortKey)

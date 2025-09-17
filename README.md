@@ -1,14 +1,5 @@
 # A URL shortener service
 
-
-
-## Table of Contents
-
-- Requirements
-- Overall System Architecture Design
-
----
-
 ## Requirements
 
 ### Functional Requirements
@@ -57,7 +48,7 @@ Assumptions:
 - the `shortenUrl` needs to be unique
 - anyone can call both two endpoints without authentication and authorization
 - the `domain` field of the `POST /newurl` request payload is used to allow user to control the domain name of the shorten url
-    - we
+    - we assume that `domain` value always is valid that can be resolved to the our owned IP(s)
 
 ### Non-Functional Requirements
 
@@ -77,8 +68,7 @@ This architecture is designed with a focus on how the system scale globally for 
 
 - Key Technoliges: 
     - Edge Location for reducing propagation delay
-    - Cache for fast read operation
-    - Database for durability and propagating writing operation across regions
+    - Geo-Distributed Key-Value Database for fast read/write operations and durability
     - DNS for seperating traffic per region and service discovery
     - Application Load Balancer for load balancing across url-shorten service
     - Web Application Firewall: rate limiting, inspect and filter suspicious HTTP requests
@@ -88,24 +78,24 @@ This architecture is designed with a focus on how the system scale globally for 
 - Main Cache Hierarchy: Edge Location -> Region Level Cache
     - Edge location: absorb most of the requests of the popular URLs
     - Region Level Cache: serves uncached or cache-miss requests for all url-shorten service instances
+    - the URL shortening service instances do not maintain individual caches, as this would necessitate complex load balancing techniques to prevent cache hot spots and ensure high cache hit rates across all instances.
 - The internal traffic flow is also controlled for security e.g. the ALB only call the url-shorten service (i.e. ALB can't call the database).
 - CI/CD consideration: we choose to use **container** as the portable uint of the url-shorten service because
     - it is lightweight which take up less space and are easier to scale
     - immutability: it packaged all service dependences which enable us to deploy and test it consistently from the test environment to the production environment
     - widely adopted solution with large active community
 - The url-shorten service is stateless. We can deploy it in anywhere and at anytime.
-- Across the region, we favour availability over consistency when under a network partition.
-    - main reason: we want to ensure very high data durability and eventual consistency, yet we don't pay the cost of cross-region round-trip delay
-- The other necessary systems such as CI/CD system, intrusion detection/prevention systems, and observability system are omitted as intend
-- How to minimise hot spots and increase cache hit rate are also not discussed at this section
-- How to support custom multi-domain is not discussed at this section
+- We favour availability over consistency when under a network partition.
 - Full CQRS pattern(seperate read store and write store) is not applied in this design for simplicity
-- The database is a relational database with ACID guarantee that only has one primary replica but write operation can tolerate a zone failure. Here are the reasons:
-    - It writes to replicas to a quorum before a write operation is considered successful.
-    - The secondary replicas can detect the leader was offline and propose a new leader among the secondary live replicas. 
+- Why Key-Value DB?
+    - The data model for serving URL shortening is simple that can be represented by a single key-value pair
+    - No need for complex queries such as scan and join
+    - key-value DB's read and write performance is much better SQL DB by key sharding technique
+    - If we use SQL DB, we may need to add an distributed cache layer for optimize the read performance.
 - Deploying the url-shorten services on the second is optional
-- AWS services that we can use: Cloudfront, ALB, Aurora, Route53, ElastiCache, WAF, VPC, EKS
-    - we will discussed the details in the following section
+- AWS services that we can use: Cloudfront, ALB, DynamoDB, Route53, ElastiCache, WAF, VPC, EKS
+    - we will discussed them a bit more in the *Tech Stack* section
+- The other necessary systems such as CI/CD system, intrusion detection/prevention systems, and observability system are omitted as intend
 
 ### Scaling Mechanism
 
@@ -117,9 +107,9 @@ The mechanism can be realized in many established solutions that can support dif
 
 ## Database Scheme
 
-
-```
-```
+| Key | Value |
+| -   | -  |
+| shortKey    |  originalURL   |
 
 ---
 
@@ -171,27 +161,34 @@ The mechanism can be realized in many established solutions that can support dif
     - 99.99% uptime SLA for its Multi-AZ
     - can achieve over 500 million requests per second per cluster
         - https://aws.amazon.com/blogs/database/achieve-over-500-million-requests-per-second-per-cluster-with-amazon-elasticache-for-redis-7-1/
-- Aurora DB:
-    - 99.50% uptime SLA for its Multi-AZ
-    - testing on standard benchmarks such as SysBench has shown an increase in throughput of up to 5x over stock MySQL and 3x over stock PostgreSQL on similar hardware.
-        - https://aws.amazon.com/rds/aurora/features/?nc1=h_ls#topic-0
+- DynamoDB:
+    - Multi-AZ replication by default, with Global Tables for multi-region active-active writes, ensuring no single point of failure and region-level durability (RPO=0).
+    - adjusts for capacity by automatically scaling tables with zero administration
+    - serve more than 10 trillion requests per day with 20 million requests per second at peaks (millisecond latency), over petabytes of storage
+    - using the in-memory caching technique called DynamoDB Accelerator (DAX), the read performance of DynamoDB tables can be improved by up to 10 times, even at millions of requests per second (microsecond latency)
  
-The above numbers can give a strong sense that we can build the highly available URL shorten systen that can meet our scaling target 1000+ req/sec with these cloud services.
+The above numbers can give us a strong sense that we can build the highly available URL shorten systen that can meet our scaling target 1000+ req/sec with these cloud services.
 
 ---
 
-## Future Works
+## Possible Future Works
 
-- cache strategy tunning e.g. *TTL*
+- improve the golang implementation:
+    - error handling
+    - test coverage
+- consider cache strategy
+    - should we set *TTL* to 0?
+    - cache eviction policy: eg. LRU or LFU?
 - make sure the shortenUrl key generation collision ratio is lower than our expectation
 - add health check endpoints for determining the health and the readiness of the instance by external service e.g. kubernetes
-- support distributed tracing for observability
+- support metrics endpoint and distributed tracing for observability and alert system integration
+    - Key Metrics for the web server: 
+        - API Performance: request latency, request rate, error rate
+        - Resource Utilization: CPU, memory, number of active HTTP connections
 - support multiple domain names
 - write REST API specification as code for openness and easier to manage API lifecycle
-
----
-
-## Credits
-
-- Grok AI
-
+    - e.g. https://swagger.io/specification/
+- support data analysis about the REST API usage
+- How to handle regional disasters or complete service-level outages quickly?
+    - https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-global-database-disaster-recovery.html
+- Do we need any warm-up mechanism for the redis cache cluster after scaling or restart?

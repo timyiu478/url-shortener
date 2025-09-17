@@ -64,6 +64,10 @@ func (h *Handler) CreateShortURL(w http.ResponseWriter, r *http.Request) {
 
     shortKey, err := h.svc.CreateShortURL(r.Context(), req.URL)
     if err != nil {
+			  if err.Error() == services.ErrOriginalURLEmpty.Error() || err.Error() == services.ErrInvalidURLFormat.Error() {
+					http.Error(w, "Invalid request body", http.StatusBadRequest)
+					return
+				}
         if mysqlErr, ok := err.(*mysql.MySQLError); ok && mysqlErr.Number == 1062 {
             http.Error(w, "Short key conflict", http.StatusConflict)
             return
@@ -72,6 +76,7 @@ func (h *Handler) CreateShortURL(w http.ResponseWriter, r *http.Request) {
         return
     }
 
+		// Assumed req.Domain is a valid that can be resolved to the our owned IP(s)
     resp := map[string]string{
         "url":        req.URL,
         "shortenUrl": "https://" + req.Domain + "/" + shortKey,
@@ -85,6 +90,7 @@ func (h *Handler) CreateShortURL(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetOriginalURL(w http.ResponseWriter, r *http.Request) {
     shortKey := chi.URLParam(r, "shortKey")
     originalURL, err := h.svc.GetOriginalURL(r.Context(), shortKey)
+
     if err != nil {
         if errors.Is(err, sql.ErrNoRows) {
             http.Error(w, "URL not found", http.StatusNotFound)
