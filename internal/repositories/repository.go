@@ -92,8 +92,7 @@ func (r *urlRepository) StoreURL(ctx context.Context, shortKey string, originalU
 
 	_, err := r.client.PutItem(ctx, input)
 	if err != nil {
-		var cfe *types.ConditionalCheckFailedException
-		if ok := (func() bool { _, ok := err.(*types.ConditionalCheckFailedException); return ok })(); ok {
+		if _, ok := err.(*types.ConditionalCheckFailedException); ok {
 			return ErrDuplicateKey
 		}
 		// propagate error
