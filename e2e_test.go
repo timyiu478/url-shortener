@@ -1,9 +1,9 @@
 package main
 
 import (
-	"io"
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"os"
 	"regexp"
