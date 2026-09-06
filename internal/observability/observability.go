@@ -8,7 +8,7 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/exporters/otlp/otlpgrpc"
+	otlptracegrpc "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
@@ -21,7 +21,7 @@ type Config struct {
 	OTLPEndpoint string
 }
 
-// Init configures structured JSON logging and (optionally) an OTLP gRPC exporter.
+// Init configures structured JSON logging and (optionally) an OTLP gRPC trace exporter.
 // Returns a shutdown func to flush/close providers.
 func Init(cfg Config) (func(context.Context) error, error) {
 	// Structured JSON logging
@@ -35,8 +35,13 @@ func Init(cfg Config) (func(context.Context) error, error) {
 	if cfg.OTLPEndpoint != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		cancelFn = cancel
+
+		// Dial options (insecure by default for local/dev)
 		dialOptions := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
-		client, err := otlpgrpc.New(ctx, otlpgrpc.WithEndpoint(cfg.OTLPEndpoint), otlpgrpc.WithDialOption(dialOptions...))
+
+		client, err := otlptracegrpc.New(ctx,
+			otlptracegrpc.WithEndpoint(cfg.OTLPEndpoint),
+			otlptracegrpc.WithDialOption(dialOptions...))
 		if err != nil {
 			return nil, err
 		}
@@ -56,6 +61,7 @@ func Init(cfg Config) (func(context.Context) error, error) {
 			sdktrace.WithResource(res),
 		)
 		otel.SetTracerProvider(tp)
+		logger.Info("OTLP tracer configured", "endpoint", cfg.OTLPEndpoint)
 	}
 
 	shutdown := func(ctx context.Context) error {
