@@ -55,9 +55,9 @@ func TraceLoggerMiddleware(next http.Handler) http.Handler {
 		ctx := r.Context()
 		sc := trace.SpanContextFromContext(ctx)
 		logger := slog.Default()
-		if sc.IsValid() {
-			traceID := sc.TraceID().String()
-			logger = logger.With("trace_id", traceID)
+		// If the span context contains a valid trace ID, attach it to a request logger.
+		if sc.TraceID().IsValid() {
+			logger = logger.With("trace_id", sc.TraceID().String())
 		}
 		ctx = context.WithValue(ctx, loggerKey, logger)
 		next.ServeHTTP(w, r.WithContext(ctx))
@@ -71,8 +71,12 @@ func FromContext(ctx context.Context) *slog.Logger {
 		return slog.Default()
 	}
 	if v := ctx.Value(loggerKey); v != nil {
-		if l, ok := v.(*slog.Logger); ok {
+		switch l := v.(type) {
+		case *slog.Logger:
 			return l
+		case slog.Logger:
+			// stored as a value; return pointer to a copy
+			return &l
 		}
 	}
 	return slog.Default()
