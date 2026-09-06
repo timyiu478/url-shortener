@@ -125,7 +125,15 @@ Verify that all services pass health checks:
 docker compose ps
 ```
 
-### 2. Test Endpoints
+### 2. Initialize the Database
+
+Create the required DynamoDB table by running the setup script:
+
+```bash
+make create-table
+```
+
+### 3. Test Endpoints
 
 Create a short URL:
 
