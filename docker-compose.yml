@@ -1,0 +1,40 @@
+version: "3.8"
+services:
+  dynamodb:
+    image: amazon/dynamodb-local:latest
+    container_name: url_shortener_dynamodb
+    ports:
+      - "8000:8000"
+    command: ["-jar","DynamoDBLocal.jar","-inMemory","-sharedDb"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/shell/"]
+      interval: 5s
+      retries: 5
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: url_shortener_otelcol
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "8888:8888"   # metrics (optional)
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./observability/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    depends_on:
+      - jaeger
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.47
+    container_name: url_shortener_jaeger
+    ports:
+      - "16686:16686" # Jaeger UI
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: url_shortener_prom
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
