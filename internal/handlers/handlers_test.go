@@ -1,213 +1,213 @@
 package handlers_test
 
 import (
-    "bytes"
-    "context"
-    "encoding/json"
-    "errors"
-    "net/http"
-    "net/http/httptest"
-    "regexp"
-    "strings"
-    "testing"
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"regexp"
+	"strings"
+	"testing"
 
-    "github.com/go-chi/chi/v5"
-    "url-shortener/internal/handlers"
-    "url-shortener/internal/services"
+	"github.com/go-chi/chi/v5"
+	"url-shortener/internal/handlers"
+	"url-shortener/internal/services"
 )
 
 type mockShortener struct {
-    createResult string
-    createErr    error
-    getResult    string
-    getErr       error
+	createResult string
+	createErr    error
+	getResult    string
+	getErr       error
 }
 
 func (m *mockShortener) CreateShortURL(ctx context.Context, originalURL string) (string, error) {
-    return m.createResult, m.createErr
+	return m.createResult, m.createErr
 }
 
 func (m *mockShortener) GetOriginalURL(ctx context.Context, shortKey string) (string, error) {
-    return m.getResult, m.getErr
+	return m.getResult, m.getErr
 }
 
 type mockRepository struct {
-    pingDBErr    error
-    pingCacheErr error
+	pingDBErr    error
+	pingCacheErr error
 }
 
 func (m *mockRepository) StoreURL(ctx context.Context, shortKey, originalURL string) error {
-    return nil
+	return nil
 }
 
 func (m *mockRepository) GetURL(ctx context.Context, shortKey string) (string, error) {
-    return "", nil
+	return "", nil
 }
 
 func (m *mockRepository) PingDB(ctx context.Context) error {
-    return m.pingDBErr
+	return m.pingDBErr
 }
 
 func (m *mockRepository) PingCache(ctx context.Context) error {
-    return m.pingCacheErr
+	return m.pingCacheErr
 }
 
 func (m *mockRepository) Close() error {
-    return nil
+	return nil
 }
 
 func TestHandler_CreateShortURL(t *testing.T) {
-    // Success case
-    t.Run("Success", func(t *testing.T) {
-        mockSvc := &mockShortener{createResult: "g20hi3k9Z", createErr: nil}
-        mockRepo := &mockRepository{}
-        h := handlers.NewHandler(mockSvc, mockRepo)
+	// Success case
+	t.Run("Success", func(t *testing.T) {
+		mockSvc := &mockShortener{createResult: "g20hi3k9Z", createErr: nil}
+		mockRepo := &mockRepository{}
+		h := handlers.NewHandler(mockSvc, mockRepo)
 
-        r := chi.NewRouter()
-        r.Post("/newurl", h.CreateShortURL)
+		r := chi.NewRouter()
+		r.Post("/newurl", h.CreateShortURL)
 
-        reqBody, _ := json.Marshal(map[string]string{"domain": "shortenurl.org", "url": "https://google.com"})
-        req := httptest.NewRequest("POST", "/newurl", bytes.NewReader(reqBody))
-        rr := httptest.NewRecorder()
+		reqBody, _ := json.Marshal(map[string]string{"domain": "shortenurl.org", "url": "https://google.com"})
+		req := httptest.NewRequest("POST", "/newurl", bytes.NewReader(reqBody))
+		rr := httptest.NewRecorder()
 
-        r.ServeHTTP(rr, req)
+		r.ServeHTTP(rr, req)
 
-        if rr.Code != http.StatusOK {
-            t.Errorf("Expected status 200, got %d", rr.Code)
-        }
+		if rr.Code != http.StatusOK {
+			t.Errorf("Expected status 200, got %d", rr.Code)
+		}
 
-        var resp map[string]string
-        json.Unmarshal(rr.Body.Bytes(), &resp)
-        shortenURL := resp["shortenUrl"]
-        if !strings.HasPrefix(shortenURL, "https://shortenurl.org/") {
-            t.Errorf("Expected shortenUrl to start with https://shortenurl.org/, got %s", shortenURL)
-        }
-        shortKey := shortenURL[len("https://shortenurl.org/"):]
-        if matched, _ := regexp.MatchString("^[0-9a-zA-Z]{9}$", shortKey); !matched {
-            t.Errorf("Short key %s is not Base62", shortKey)
-        }
-    })
+		var resp map[string]string
+		json.Unmarshal(rr.Body.Bytes(), &resp)
+		shortenURL := resp["shortenUrl"]
+		if !strings.HasPrefix(shortenURL, "https://shortenurl.org/") {
+			t.Errorf("Expected shortenUrl to start with https://shortenurl.org/, got %s", shortenURL)
+		}
+		shortKey := shortenURL[len("https://shortenurl.org/"):]
+		if matched, _ := regexp.MatchString("^[0-9a-zA-Z]{9}$", shortKey); !matched {
+			t.Errorf("Short key %s is not Base62", shortKey)
+		}
+	})
 
-    // Error case: invalid URL
-    t.Run("InvalidURL", func(t *testing.T) {
-        mockSvc := &mockShortener{createErr: errors.New("invalid URL format")}
-        mockRepo := &mockRepository{}
-        h := handlers.NewHandler(mockSvc, mockRepo)
+	// Error case: invalid URL
+	t.Run("InvalidURL", func(t *testing.T) {
+		mockSvc := &mockShortener{createErr: errors.New("invalid URL format")}
+		mockRepo := &mockRepository{}
+		h := handlers.NewHandler(mockSvc, mockRepo)
 
-        r := chi.NewRouter()
-        r.Post("/newurl", h.CreateShortURL)
+		r := chi.NewRouter()
+		r.Post("/newurl", h.CreateShortURL)
 
-        reqBody, _ := json.Marshal(map[string]string{"domain": "shortenurl.org", "url": "!invalid"})
-        req := httptest.NewRequest("POST", "/newurl", bytes.NewReader(reqBody))
-        rr := httptest.NewRecorder()
+		reqBody, _ := json.Marshal(map[string]string{"domain": "shortenurl.org", "url": "!invalid"})
+		req := httptest.NewRequest("POST", "/newurl", bytes.NewReader(reqBody))
+		rr := httptest.NewRecorder()
 
-        r.ServeHTTP(rr, req)
+		r.ServeHTTP(rr, req)
 
-        if rr.Code != http.StatusBadRequest {
-            t.Errorf("Expected status 400, got %d", rr.Code)
-        }
-    })
+		if rr.Code != http.StatusBadRequest {
+			t.Errorf("Expected status 400, got %d", rr.Code)
+		}
+	})
 }
 
 func TestHandler_GetOriginalURL(t *testing.T) {
-    // Success case
-    t.Run("Success", func(t *testing.T) {
-        mockSvc := &mockShortener{getResult: "https://google.com", getErr: nil}
-        mockRepo := &mockRepository{}
-        h := handlers.NewHandler(mockSvc, mockRepo)
+	// Success case
+	t.Run("Success", func(t *testing.T) {
+		mockSvc := &mockShortener{getResult: "https://google.com", getErr: nil}
+		mockRepo := &mockRepository{}
+		h := handlers.NewHandler(mockSvc, mockRepo)
 
-        r := chi.NewRouter()
-        r.Get("/{shortKey}", h.GetOriginalURL)
+		r := chi.NewRouter()
+		r.Get("/{shortKey}", h.GetOriginalURL)
 
-        req := httptest.NewRequest("GET", "/g20hi3k9Z", nil)
-        rr := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/g20hi3k9Z", nil)
+		rr := httptest.NewRecorder()
 
-        r.ServeHTTP(rr, req)
+		r.ServeHTTP(rr, req)
 
-        if rr.Code != http.StatusNotModified {
-            t.Errorf("Expected status 304, got %d", rr.Code)
-        }
-        if rr.Header().Get("Location") != "https://google.com" {
-            t.Errorf("Expected redirect to https://google.com, got %s", rr.Header().Get("Location"))
-        }
-    })
+		if rr.Code != http.StatusNotModified {
+			t.Errorf("Expected status 304, got %d", rr.Code)
+		}
+		if rr.Header().Get("Location") != "https://google.com" {
+			t.Errorf("Expected redirect to https://google.com, got %s", rr.Header().Get("Location"))
+		}
+	})
 
-    // Error case: not found
-    t.Run("NotFound", func(t *testing.T) {
-        mockSvc := &mockShortener{getErr: services.ErrShortKeyNotFound}
-        mockRepo := &mockRepository{}
-        h := handlers.NewHandler(mockSvc, mockRepo)
+	// Error case: not found
+	t.Run("NotFound", func(t *testing.T) {
+		mockSvc := &mockShortener{getErr: services.ErrShortKeyNotFound}
+		mockRepo := &mockRepository{}
+		h := handlers.NewHandler(mockSvc, mockRepo)
 
-        r := chi.NewRouter()
-        r.Get("/{shortKey}", h.GetOriginalURL)
+		r := chi.NewRouter()
+		r.Get("/{shortKey}", h.GetOriginalURL)
 
-        req := httptest.NewRequest("GET", "/dfiddd", nil)
-        rr := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/dfiddd", nil)
+		rr := httptest.NewRecorder()
 
-        r.ServeHTTP(rr, req)
+		r.ServeHTTP(rr, req)
 
-        if rr.Code != http.StatusNotFound {
-            t.Errorf("Expected status 404, got %d", rr.Code)
-        }
-    })
+		if rr.Code != http.StatusNotFound {
+			t.Errorf("Expected status 404, got %d", rr.Code)
+		}
+	})
 }
 
 func TestHandler_HealthCheck(t *testing.T) {
-    h := handlers.NewHandler(nil, nil)
+	h := handlers.NewHandler(nil, nil)
 
-    r := chi.NewRouter()
-    r.Get("/healthz", h.HealthCheck)
+	r := chi.NewRouter()
+	r.Get("/healthz", h.HealthCheck)
 
-    req := httptest.NewRequest("GET", "/healthz", nil)
-    rr := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/healthz", nil)
+	rr := httptest.NewRecorder()
 
-    r.ServeHTTP(rr, req)
+	r.ServeHTTP(rr, req)
 
-    if rr.Code != http.StatusOK {
-        t.Errorf("Expected status 200, got %d", rr.Code)
-    }
-    if rr.Body.String() != "OK" {
-        t.Errorf("Expected body OK, got %s", rr.Body.String())
-    }
+	if rr.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", rr.Code)
+	}
+	if rr.Body.String() != "OK" {
+		t.Errorf("Expected body OK, got %s", rr.Body.String())
+	}
 }
 
 func TestHandler_ReadinessCheck(t *testing.T) {
-    // Success case
-    t.Run("Success", func(t *testing.T) {
-        mockRepo := &mockRepository{pingDBErr: nil, pingCacheErr: nil}
-        h := handlers.NewHandler(nil, mockRepo)
+	// Success case
+	t.Run("Success", func(t *testing.T) {
+		mockRepo := &mockRepository{pingDBErr: nil, pingCacheErr: nil}
+		h := handlers.NewHandler(nil, mockRepo)
 
-        r := chi.NewRouter()
-        r.Get("/readyz", h.ReadinessCheck)
+		r := chi.NewRouter()
+		r.Get("/readyz", h.ReadinessCheck)
 
-        req := httptest.NewRequest("GET", "/readyz", nil)
-        rr := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/readyz", nil)
+		rr := httptest.NewRecorder()
 
-        r.ServeHTTP(rr, req)
+		r.ServeHTTP(rr, req)
 
-        if rr.Code != http.StatusOK {
-            t.Errorf("Expected status 200, got %d", rr.Code)
-        }
-        if rr.Body.String() != "OK" {
-            t.Errorf("Expected body OK, got %s", rr.Body.String())
-        }
-    })
+		if rr.Code != http.StatusOK {
+			t.Errorf("Expected status 200, got %d", rr.Code)
+		}
+		if rr.Body.String() != "OK" {
+			t.Errorf("Expected body OK, got %s", rr.Body.String())
+		}
+	})
 
-    // Failure case: DB down
-    t.Run("DBFailure", func(t *testing.T) {
-        mockRepo := &mockRepository{pingDBErr: errors.New("db down"), pingCacheErr: nil}
-        h := handlers.NewHandler(nil, mockRepo)
+	// Failure case: DB down
+	t.Run("DBFailure", func(t *testing.T) {
+		mockRepo := &mockRepository{pingDBErr: errors.New("db down"), pingCacheErr: nil}
+		h := handlers.NewHandler(nil, mockRepo)
 
-        r := chi.NewRouter()
-        r.Get("/readyz", h.ReadinessCheck)
+		r := chi.NewRouter()
+		r.Get("/readyz", h.ReadinessCheck)
 
-        req := httptest.NewRequest("GET", "/readyz", nil)
-        rr := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/readyz", nil)
+		rr := httptest.NewRecorder()
 
-        r.ServeHTTP(rr, req)
+		r.ServeHTTP(rr, req)
 
-        if rr.Code != http.StatusServiceUnavailable {
-            t.Errorf("Expected status 503, got %d", rr.Code)
-        }
-    })
+		if rr.Code != http.StatusServiceUnavailable {
+			t.Errorf("Expected status 503, got %d", rr.Code)
+		}
+	})
 }

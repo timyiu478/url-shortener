@@ -17,11 +17,11 @@ import (
 )
 
 var (
-	ErrCreateShortURLFailed    = fmt.Errorf("failed to create short URL")
-	ErrInvalidURLFormat       = fmt.Errorf("invalid URL format")
-	ErrOriginalURLEmpty       = fmt.Errorf("original URL is empty")
-	ErrShortKeyNotFound       = fmt.Errorf("short key is not found")
-	ErrInvalidShortKeyFormat  = fmt.Errorf("invalid short key format")
+	ErrCreateShortURLFailed  = fmt.Errorf("failed to create short URL")
+	ErrInvalidURLFormat      = fmt.Errorf("invalid URL format")
+	ErrOriginalURLEmpty      = fmt.Errorf("original URL is empty")
+	ErrShortKeyNotFound      = fmt.Errorf("short key is not found")
+	ErrInvalidShortKeyFormat = fmt.Errorf("invalid short key format")
 )
 
 type Shortener interface {
