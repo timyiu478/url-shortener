@@ -21,14 +21,21 @@ services:
     env_file:
       - .env.example
     environment:
-      # when running inside compose the API should talk to dynamodb service by name
+      # 1. Ensure AWS SDKs and custom code use the in-compose DynamoDB service by name
+      AWS_ENDPOINT_URL: "http://dynamodb:8000"
       AWS_ENDPOINT: "http://dynamodb:8000"
-      # OTLP collector inside compose
+
+      # 2. Force OTLP exporter to use insecure (plaintext) gRPC so no TLS handshake is attempted
+      OTEL_EXPORTER_OTLP_INSECURE: "true"
       OTEL_COLLECTOR_ENDPOINT: "otel-collector:4317"
+
+      # standard app envs
       DYNAMODB_TABLE_NAME: "Urls"
       AWS_REGION: "us-east-1"
       SHARDID: "1"
       PORT: "8080"
+      AWS_ACCESS_KEY_ID: "local"
+      AWS_SECRET_ACCESS_KEY: "local"
     depends_on:
       - dynamodb
       - otel-collector
@@ -46,6 +53,7 @@ services:
     container_name: url_shortener_otelcol
     ports:
       - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
       - "8888:8888"   # metrics (optional)
     command: ["--config=/etc/otel-collector-config.yaml"]
     volumes:
@@ -58,6 +66,8 @@ services:
     container_name: url_shortener_jaeger
     ports:
       - "16686:16686" # Jaeger UI
+      - "4317:4317"   # Jaeger OTLP gRPC receiver
+      - "4318:4318"   # Jaeger OTLP HTTP receiver
 
   prometheus:
     image: prom/prometheus:latest
