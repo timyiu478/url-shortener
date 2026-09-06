@@ -20,11 +20,26 @@ services:
       - "8080:8080"
     env_file:
       - .env.example
+    environment:
+      # when running inside compose the API should talk to dynamodb service by name
+      AWS_ENDPOINT: "http://dynamodb:8000"
+      # OTLP collector inside compose
+      OTEL_COLLECTOR_ENDPOINT: "otel-collector:4317"
+      DYNAMODB_TABLE_NAME: "Urls"
+      AWS_REGION: "us-east-1"
+      SHARDID: "1"
+      PORT: "8080"
     depends_on:
       - dynamodb
       - otel-collector
     networks:
       - default
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/readyz || exit 1"]
+      interval: 5s
+      timeout: 2s
+      retries: 20
+      start_period: 10s
 
   otel-collector:
     image: otel/opentelemetry-collector-contrib:latest
