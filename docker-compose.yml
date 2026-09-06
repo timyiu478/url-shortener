@@ -11,6 +11,21 @@ services:
       interval: 5s
       retries: 5
 
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: url_shortener_api
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env.example
+    depends_on:
+      - dynamodb
+      - otel-collector
+    networks:
+      - default
+
   otel-collector:
     image: otel/opentelemetry-collector-contrib:latest
     container_name: url_shortener_otelcol
@@ -38,3 +53,7 @@ services:
       - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
+
+networks:
+  default:
+    name: url_shortener_network

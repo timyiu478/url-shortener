@@ -8,8 +8,8 @@ down:
 	docker compose down
 
 create-table:
-	@echo "Creating DynamoDB table ${DYNAMODB_TABLE_NAME:-Urls} at ${AWS_ENDPOINT:-http://localhost:8000}"
-	./scripts/create_table.sh
+	@echo "Creating DynamoDB table ${DYNAMODB_TABLE_NAME:-Urls} at ${AWS_ENDPOINT:-http://localhost:8000} (using Go helper)"
+	go run ./cmd/create_table
 
 run:
 	@echo "Run the API locally (requires Go >= 1.26 recommended)."

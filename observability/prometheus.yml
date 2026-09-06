@@ -4,4 +4,4 @@ global:
 scrape_configs:
   - job_name: 'url-shortener'
     static_configs:
-      - targets: ['host.docker.internal:8080'] # use host.docker.internal if running the app on host; replace with target address as needed
+      - targets: ['api:8080']
