@@ -12,6 +12,33 @@ Watch the walkthrough video demonstrating local stack deployment, endpoint execu
 
 ---
 
+## Benchmark
+
+### Environment
+
+* **OS / Kernel:** Linux 6.8.0-136-generic x86_64 (glibc 2.35)
+* **CPU:** 13th Gen Intel(R) Core(TM) i5-13600 (4 logical cores)
+* **Memory:** 15.4 GB
+
+### Configuration
+* **Target:** `http://localhost:8080`
+* **Concurrency:** 100 connections
+* **Workload Duration:** 60 seconds per run
+* **Repeats:** 3 runs per workload (Warmup: 5s)
+* **Total Wall Time:** 16m 51s
+* **Timestamp:** 2026-09-07 13:15:58
+
+### Performance Metrics
+
+| Workload | Description | Success Rate | Throughput | p50 | p90 | p99 | p99.9 | Max |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Workload A** | 100% Write (`POST /newurl`) | 3/3 ok | **1,146.77 req/s** | 96.99 ms | 122.39 ms | 164.53 ms | 318.40 ms | 882.30 ms |
+| **Workload B** | 90% Read / 10% Write | 3/3 ok | **1,231.92 req/s** | 51.67 ms | 131.83 ms | 597.57 ms | 2,149.17 ms | 6,199.07 ms |
+| **Workload C** | 100% Read (Hot Keys) | 3/3 ok | **1,205.79 req/s** | 60.20 ms | 144.57 ms | 463.28 ms | 796.49 ms | 3,562.78 ms |
+| **Workload D** | 100% Read (Cold/Miss) | 3/3 ok | **786.88 req/s** | 58.00 ms | 134.91 ms | 575.10 ms | 2,471.85 ms | 4,784.06 ms |
+
+---
+
 ## Core Features
 
 - **High Throughput & Low Latency:** Engineered to handle 1000+ req/sec with horizontal scaling capabilities.
